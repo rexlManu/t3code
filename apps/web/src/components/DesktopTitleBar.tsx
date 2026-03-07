@@ -135,7 +135,7 @@ export function DesktopTitleBar() {
   return (
     <header
       className={cn(
-        "drag-region flex h-7 shrink-0 items-center border-b border-border bg-background",
+        "drag-region relative z-20 flex h-7 shrink-0 items-center border-b border-border bg-background",
         !windowState.isFocused && "opacity-[0.88]",
       )}
     >
