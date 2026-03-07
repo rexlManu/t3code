@@ -653,9 +653,11 @@ function extractToolCall(
 
   const inputPreview = summarizeToolInput(stateInput, command);
   const outputPreview =
-    stringifyPreview(state?.output) ??
-    stringifyPreview(metadata?.output) ??
-    stringifyPreview(state?.error);
+    status === "failed"
+      ? stringifyPreview(state?.error) ??
+        stringifyPreview(state?.output) ??
+        stringifyPreview(metadata?.output)
+      : null;
 
   if (inputPreview && inputPreview !== command) {
     toolCall.input = inputPreview;

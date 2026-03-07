@@ -5133,7 +5133,9 @@ const MessagesTimeline = memo(function MessagesTimeline({
                           {workEntry.detail &&
                           (!workEntry.command || workEntry.detail !== workEntry.command) ? (
                             <p
-                              className="mt-2 text-[11px] leading-relaxed text-muted-foreground/75"
+                              className={`mt-2 text-[11px] leading-relaxed text-muted-foreground/75 ${
+                                workEntry.tone === "thinking" ? "whitespace-pre-wrap" : ""
+                              }`}
                               title={workEntry.detail}
                             >
                               {workEntry.detail}
@@ -5168,7 +5170,9 @@ const MessagesTimeline = memo(function MessagesTimeline({
                           {workEntry.detail &&
                             (!workEntry.command || workEntry.detail !== workEntry.command) && (
                               <p
-                                className="mt-1 text-[11px] leading-relaxed text-muted-foreground/75"
+                                className={`mt-1 text-[11px] leading-relaxed text-muted-foreground/75 ${
+                                  workEntry.tone === "thinking" ? "whitespace-pre-wrap" : ""
+                                }`}
                                 title={workEntry.detail}
                               >
                                 {workEntry.detail}

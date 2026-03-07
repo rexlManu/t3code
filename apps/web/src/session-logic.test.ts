@@ -509,7 +509,6 @@ describe("deriveWorkLogEntries", () => {
       status: "completed",
       itemType: "web_search",
       input: "query: opencode variants  ·  limit: 5",
-      output: "Found matching docs and examples",
     });
   });
 

@@ -313,7 +313,7 @@ function runtimeEventToActivities(
       ) {
         return [];
       }
-      const detail = event.payload.delta.trim();
+      const detail = event.payload.delta;
       if (detail.length === 0) {
         return [];
       }
@@ -325,7 +325,7 @@ function runtimeEventToActivities(
           kind: "reasoning.delta",
           summary: event.payload.streamKind === "reasoning_summary_text" ? "Reasoning summary" : "Thinking",
           payload: {
-            detail: truncateDetail(detail),
+            detail: truncateDetail(detail, 600),
             streamKind: event.payload.streamKind,
             taskId: event.itemId ?? event.turnId ?? event.eventId,
           },
