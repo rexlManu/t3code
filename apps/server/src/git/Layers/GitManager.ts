@@ -1,13 +1,77 @@
-import { Effect, Layer } from "effect";
+import { randomUUID } from "node:crypto";
+
+import { Effect, FileSystem, Layer, Path } from "effect";
 import { resolveAutoFeatureBranchName, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 
 import { GitManagerError } from "../Errors.ts";
 import { GitManager, type GitManagerShape } from "../Services/GitManager.ts";
 import { GitCore } from "../Services/GitCore.ts";
-import { GitHostingCli, type GitPullRequestSummary } from "../Services/GitHostingCli.ts";
+import { GitHubCli } from "../Services/GitHubCli.ts";
 import { TextGeneration } from "../Services/TextGeneration.ts";
 
-type PullRequestInfo = GitPullRequestSummary;
+interface OpenPrInfo {
+  number: number;
+  title: string;
+  url: string;
+  baseRefName: string;
+  headRefName: string;
+}
+
+interface PullRequestInfo extends OpenPrInfo {
+  state: "open" | "closed" | "merged";
+  updatedAt: string | null;
+}
+
+function parsePullRequestList(raw: unknown): PullRequestInfo[] {
+  if (!Array.isArray(raw)) return [];
+
+  const parsed: PullRequestInfo[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const number = record.number;
+    const title = record.title;
+    const url = record.url;
+    const baseRefName = record.baseRefName;
+    const headRefName = record.headRefName;
+    const state = record.state;
+    const mergedAt = record.mergedAt;
+    const updatedAt = record.updatedAt;
+    if (typeof number !== "number" || !Number.isInteger(number) || number <= 0) {
+      continue;
+    }
+    if (
+      typeof title !== "string" ||
+      typeof url !== "string" ||
+      typeof baseRefName !== "string" ||
+      typeof headRefName !== "string"
+    ) {
+      continue;
+    }
+
+    let normalizedState: "open" | "closed" | "merged";
+    if ((typeof mergedAt === "string" && mergedAt.trim().length > 0) || state === "MERGED") {
+      normalizedState = "merged";
+    } else if (state === "OPEN" || state === undefined || state === null) {
+      normalizedState = "open";
+    } else if (state === "CLOSED") {
+      normalizedState = "closed";
+    } else {
+      continue;
+    }
+
+    parsed.push({
+      number,
+      title,
+      url,
+      baseRefName,
+      headRefName,
+      state: normalizedState,
+      updatedAt: typeof updatedAt === "string" && updatedAt.trim().length > 0 ? updatedAt : null,
+    });
+  }
+  return parsed;
+}
 
 function gitManagerError(operation: string, detail: string, cause?: unknown): GitManagerError {
   return new GitManagerError({
@@ -113,46 +177,80 @@ function toStatusPr(pr: PullRequestInfo): {
 
 export const makeGitManager = Effect.gen(function* () {
   const gitCore = yield* GitCore;
-  const gitHostingCli = yield* GitHostingCli;
+  const gitHubCli = yield* GitHubCli;
   const textGeneration = yield* TextGeneration;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+
+  const tempDir = process.env.TMPDIR ?? process.env.TEMP ?? process.env.TMP ?? "/tmp";
 
   const findOpenPr = (cwd: string, branch: string) =>
-    gitHostingCli
-      .listPullRequests({
+    gitHubCli
+      .listOpenPullRequests({
         cwd,
         headBranch: branch,
-        state: "open",
         limit: 1,
       })
       .pipe(
         Effect.map((prs) => {
           const [first] = prs;
-          return first ?? null;
+          if (!first) {
+            return null;
+          }
+          return {
+            number: first.number,
+            title: first.title,
+            url: first.url,
+            baseRefName: first.baseRefName,
+            headRefName: first.headRefName,
+            state: "open",
+            updatedAt: null,
+          } satisfies PullRequestInfo;
         }),
       );
 
   const findLatestPr = (cwd: string, branch: string) =>
     Effect.gen(function* () {
-      const parsed = yield* gitHostingCli
-        .listPullRequests({
+      const stdout = yield* gitHubCli
+        .execute({
           cwd,
-          headBranch: branch,
-          state: "all",
-          limit: 20,
+          args: [
+            "pr",
+            "list",
+            "--head",
+            branch,
+            "--state",
+            "all",
+            "--limit",
+            "20",
+            "--json",
+            "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt",
+          ],
         })
-        .pipe(Effect.map((pullRequests) => [...pullRequests]));
+        .pipe(Effect.map((result) => result.stdout));
 
-      const sorted = parsed.toSorted((a, b) => {
+      const raw = stdout.trim();
+      if (raw.length === 0) {
+        return null;
+      }
+
+      const parsedJson = yield* Effect.try({
+        try: () => JSON.parse(raw) as unknown,
+        catch: (cause) =>
+          gitManagerError("findLatestPr", "GitHub CLI returned invalid PR list JSON.", cause),
+      });
+
+      const parsed = parsePullRequestList(parsedJson).toSorted((a, b) => {
         const left = a.updatedAt ? Date.parse(a.updatedAt) : 0;
         const right = b.updatedAt ? Date.parse(b.updatedAt) : 0;
         return right - left;
       });
 
-      const latestOpenPr = sorted.find((pr) => pr.state === "open");
+      const latestOpenPr = parsed.find((pr) => pr.state === "open");
       if (latestOpenPr) {
         return latestOpenPr;
       }
-      return sorted[0] ?? null;
+      return parsed[0] ?? null;
     });
 
   const resolveBaseBranch = (cwd: string, branch: string, upstreamRef: string | null) =>
@@ -167,11 +265,11 @@ export const makeGitManager = Effect.gen(function* () {
         }
       }
 
-      const defaultFromRemote = yield* gitHostingCli
+      const defaultFromGh = yield* gitHubCli
         .getDefaultBranch({ cwd })
         .pipe(Effect.catch(() => Effect.succeed(null)));
-      if (defaultFromRemote) {
-        return defaultFromRemote;
+      if (defaultFromGh) {
+        return defaultFromGh;
       }
 
       return "main";
@@ -287,15 +385,23 @@ export const makeGitManager = Effect.gen(function* () {
         diffPatch: limitContext(rangeContext.diffPatch, 60_000),
       });
 
-      yield* gitHostingCli
+      const bodyFile = path.join(tempDir, `t3code-pr-body-${process.pid}-${randomUUID()}.md`);
+      yield* fileSystem
+        .writeFileString(bodyFile, generated.body)
+        .pipe(
+          Effect.mapError((cause) =>
+            gitManagerError("runPrStep", "Failed to write pull request body temp file.", cause),
+          ),
+        );
+      yield* gitHubCli
         .createPullRequest({
           cwd,
           baseBranch,
           headBranch: branch,
           title: generated.title,
-          body: generated.body,
+          bodyFile,
         })
-        .pipe(Effect.mapError((cause) => gitManagerError("runPrStep", cause.message, cause)));
+        .pipe(Effect.ensuring(fileSystem.remove(bodyFile).pipe(Effect.catch(() => Effect.void))));
 
       const created = yield* findOpenPr(cwd, branch);
       if (!created) {

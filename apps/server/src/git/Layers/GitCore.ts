@@ -826,20 +826,6 @@ const makeGitCore = Effect.gen(function* () {
       Effect.map((trimmed) => (trimmed.length > 0 ? trimmed : null)),
     );
 
-  const getOriginUrl: GitCoreShape["getOriginUrl"] = (cwd) =>
-    executeGit("GitCore.getOriginUrl", cwd, ["remote", "get-url", "origin"], {
-      allowNonZeroExit: true,
-      timeoutMs: 5_000,
-    }).pipe(
-      Effect.map((result) => {
-        if (result.code !== 0) {
-          return null;
-        }
-        const trimmed = result.stdout.trim();
-        return trimmed.length > 0 ? trimmed : null;
-      }),
-    );
-
   const listBranches: GitCoreShape["listBranches"] = (input) =>
     Effect.gen(function* () {
       const branchRecencyPromise = readBranchRecency(input.cwd).pipe(
@@ -1209,7 +1195,6 @@ const makeGitCore = Effect.gen(function* () {
     pullCurrentBranch,
     readRangeContext,
     readConfigValue,
-    getOriginUrl,
     listBranches,
     createWorktree,
     removeWorktree,

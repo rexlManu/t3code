@@ -16,18 +16,15 @@ export class GitCommandError extends Schema.TaggedErrorClass<GitCommandError>()(
 }
 
 /**
- * GitHostingCliError - Git hosting CLI execution or authentication failed.
+ * GitHubCliError - GitHub CLI execution or authentication failed.
  */
-export class GitHostingCliError extends Schema.TaggedErrorClass<GitHostingCliError>()(
-  "GitHostingCliError",
-  {
+export class GitHubCliError extends Schema.TaggedErrorClass<GitHubCliError>()("GitHubCliError", {
   operation: Schema.String,
   detail: Schema.String,
   cause: Schema.optional(Schema.Defect),
-  },
-) {
+}) {
   override get message(): string {
-    return `Git hosting CLI failed in ${this.operation}: ${this.detail}`;
+    return `GitHub CLI failed in ${this.operation}: ${this.detail}`;
   }
 }
 
@@ -66,5 +63,5 @@ export class GitManagerError extends Schema.TaggedErrorClass<GitManagerError>()(
 export type GitManagerServiceError =
   | GitManagerError
   | GitCommandError
-  | GitHostingCliError
+  | GitHubCliError
   | TextGenerationError;

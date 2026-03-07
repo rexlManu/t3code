@@ -6,23 +6,24 @@ import { it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, PlatformError, Scope } from "effect";
 import { expect } from "vitest";
 
-import { GitCommandError, GitHostingCliError, TextGenerationError } from "../Errors.ts";
+import { GitCommandError, GitHubCliError, TextGenerationError } from "../Errors.ts";
 import { type GitManagerShape } from "../Services/GitManager.ts";
 import {
-  type GitHostingCliShape,
-  type GitPullRequestSummary,
-  GitHostingCli,
-} from "../Services/GitHostingCli.ts";
+  type GitHubCliShape,
+  type GitHubPullRequestSummary,
+  GitHubCli,
+} from "../Services/GitHubCli.ts";
 import { type TextGenerationShape, TextGeneration } from "../Services/TextGeneration.ts";
 import { GitServiceLive } from "./GitService.ts";
 import { GitService } from "../Services/GitService.ts";
 import { GitCoreLive } from "./GitCore.ts";
 import { makeGitManager } from "./GitManager.ts";
 
-interface FakeGitHostingScenario {
-  prListSequence?: ReadonlyArray<ReadonlyArray<GitPullRequestSummary>>;
+interface FakeGhScenario {
+  prListSequence?: string[];
+  createdPrUrl?: string;
   defaultBranch?: string;
-  failWith?: GitHostingCliError;
+  failWith?: GitHubCliError;
 }
 
 interface FakeGitTextGeneration {
@@ -164,35 +165,122 @@ function createTextGeneration(overrides: Partial<FakeGitTextGeneration> = {}): T
   };
 }
 
-function createGitHostingCliWithFakeProvider(scenario: FakeGitHostingScenario = {}): {
-  service: GitHostingCliShape;
-  cliCalls: string[];
+function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
+  service: GitHubCliShape;
+  ghCalls: string[];
 } {
   const prListQueue = [...(scenario.prListSequence ?? [])];
-  const cliCalls: string[] = [];
+  const ghCalls: string[] = [];
 
-  const listPullRequests: GitHostingCliShape["listPullRequests"] = (input) => {
-    cliCalls.push(`listPullRequests state=${input.state} head=${input.headBranch} limit=${input.limit ?? ""}`);
+  const execute: GitHubCliShape["execute"] = (input) => {
+    const args = [...input.args];
+    ghCalls.push(args.join(" "));
+
     if (scenario.failWith) {
       return Effect.fail(scenario.failWith);
     }
-    return Effect.succeed(prListQueue.shift() ?? []);
+
+    if (args[0] === "pr" && args[1] === "list") {
+      const stdout = (prListQueue.shift() ?? "[]") + "\n";
+      return Effect.succeed({
+        stdout,
+        stderr: "",
+        code: 0,
+        signal: null,
+        timedOut: false,
+      });
+    }
+
+    if (args[0] === "pr" && args[1] === "create") {
+      return Effect.succeed({
+        stdout:
+          (scenario.createdPrUrl ?? "https://github.com/pingdotgg/codething-mvp/pull/101") + "\n",
+        stderr: "",
+        code: 0,
+        signal: null,
+        timedOut: false,
+      });
+    }
+
+    if (args[0] === "pr" && args[1] === "view") {
+      return Effect.succeed({
+        stdout: "",
+        stderr: "",
+        code: 0,
+        signal: null,
+        timedOut: false,
+      });
+    }
+
+    if (args[0] === "repo" && args[1] === "view") {
+      return Effect.succeed({
+        stdout: `${scenario.defaultBranch ?? "main"}\n`,
+        stderr: "",
+        code: 0,
+        signal: null,
+        timedOut: false,
+      });
+    }
+
+    return Effect.fail(
+      new GitHubCliError({
+        operation: "execute",
+        detail: `Unexpected gh command: ${args.join(" ")}`,
+      }),
+    );
   };
 
   return {
     service: {
-      listPullRequests,
+      execute,
+      listOpenPullRequests: (input) =>
+        execute({
+          cwd: input.cwd,
+          args: [
+            "pr",
+            "list",
+            "--head",
+            input.headBranch,
+            "--state",
+            "open",
+            "--limit",
+            String(input.limit ?? 1),
+            "--json",
+            "number,title,url,baseRefName,headRefName",
+          ],
+        }).pipe(
+          Effect.map(
+            (result) => JSON.parse(result.stdout) as ReadonlyArray<GitHubPullRequestSummary>,
+          ),
+        ),
       createPullRequest: (input) =>
-        Effect.sync(() => {
-          cliCalls.push(`createPullRequest base=${input.baseBranch} head=${input.headBranch} title=${input.title}`);
-        }),
+        execute({
+          cwd: input.cwd,
+          args: [
+            "pr",
+            "create",
+            "--base",
+            input.baseBranch,
+            "--head",
+            input.headBranch,
+            "--title",
+            input.title,
+            "--body-file",
+            input.bodyFile,
+          ],
+        }).pipe(Effect.asVoid),
       getDefaultBranch: (input) =>
-        Effect.sync(() => {
-          cliCalls.push(`getDefaultBranch cwd=${input.cwd}`);
-          return scenario.defaultBranch ?? "main";
-        }),
+        execute({
+          cwd: input.cwd,
+          args: ["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"],
+        }).pipe(
+          Effect.map((result) => {
+            const value = result.stdout.trim();
+            return value.length > 0 ? value : null;
+          }),
+        ),
     },
-    cliCalls,
+    ghCalls,
   };
 }
 
@@ -209,12 +297,10 @@ function runStackedAction(
 }
 
 function makeManager(input?: {
-  hostingScenario?: FakeGitHostingScenario;
+  ghScenario?: FakeGhScenario;
   textGeneration?: Partial<FakeGitTextGeneration>;
 }) {
-  const { service: gitHostingCli, cliCalls } = createGitHostingCliWithFakeProvider(
-    input?.hostingScenario,
-  );
+  const { service: gitHubCli, ghCalls } = createGitHubCliWithFakeGh(input?.ghScenario);
   const textGeneration = createTextGeneration(input?.textGeneration);
 
   const gitCoreLayer = GitCoreLive.pipe(
@@ -223,7 +309,7 @@ function makeManager(input?: {
   );
 
   const managerLayer = Layer.mergeAll(
-    Layer.succeed(GitHostingCli, gitHostingCli),
+    Layer.succeed(GitHubCli, gitHubCli),
     Layer.succeed(TextGeneration, textGeneration),
     gitCoreLayer,
     NodeServices.layer,
@@ -231,7 +317,7 @@ function makeManager(input?: {
 
   return makeGitManager.pipe(
     Effect.provide(managerLayer),
-    Effect.map((manager) => ({ manager, cliCalls })),
+    Effect.map((manager) => ({ manager, ghCalls })),
   );
 }
 
@@ -248,19 +334,17 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       yield* runGit(repoDir, ["push", "-u", "origin", "feature/status-open-pr"]);
 
       const { manager } = yield* makeManager({
-        hostingScenario: {
+        ghScenario: {
           prListSequence: [
-            [
+            JSON.stringify([
               {
                 number: 13,
                 title: "Existing PR",
                 url: "https://github.com/pingdotgg/codething-mvp/pull/13",
                 baseRefName: "main",
                 headRefName: "feature/status-open-pr",
-                state: "open",
-                updatedAt: null,
               },
-            ],
+            ]),
           ],
         },
       });
@@ -285,19 +369,20 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       yield* runGit(repoDir, ["checkout", "-b", "feature/status-merged-pr"]);
 
       const { manager } = yield* makeManager({
-        hostingScenario: {
+        ghScenario: {
           prListSequence: [
-            [
+            JSON.stringify([
               {
                 number: 22,
                 title: "Merged PR",
                 url: "https://github.com/pingdotgg/codething-mvp/pull/22",
                 baseRefName: "main",
                 headRefName: "feature/status-merged-pr",
-                state: "merged",
+                state: "MERGED",
+                mergedAt: "2026-01-30T10:00:00Z",
                 updatedAt: "2026-01-30T10:00:00Z",
               },
-            ],
+            ]),
           ],
         },
       });
@@ -322,16 +407,17 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       yield* runGit(repoDir, ["checkout", "-b", "feature/status-open-over-merged"]);
 
       const { manager } = yield* makeManager({
-        hostingScenario: {
+        ghScenario: {
           prListSequence: [
-            [
+            JSON.stringify([
               {
                 number: 45,
                 title: "Merged PR",
                 url: "https://github.com/pingdotgg/codething-mvp/pull/45",
                 baseRefName: "main",
                 headRefName: "feature/status-open-over-merged",
-                state: "merged",
+                state: "MERGED",
+                mergedAt: "2026-01-31T10:00:00Z",
                 updatedAt: "2026-02-01T10:00:00Z",
               },
               {
@@ -340,10 +426,10 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                 url: "https://github.com/pingdotgg/codething-mvp/pull/46",
                 baseRefName: "main",
                 headRefName: "feature/status-open-over-merged",
-                state: "open",
+                state: "OPEN",
                 updatedAt: "2026-01-30T10:00:00Z",
               },
-            ],
+            ]),
           ],
         },
       });
@@ -371,9 +457,9 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       yield* runGit(repoDir, ["push", "-u", "origin", "feature/status-no-gh"]);
 
       const { manager } = yield* makeManager({
-        hostingScenario: {
-          failWith: new GitHostingCliError({
-            operation: "listPullRequests",
+        ghScenario: {
+          failWith: new GitHubCliError({
+            operation: "execute",
             detail: "GitHub CLI (`gh`) is required but not available on PATH.",
           }),
         },
@@ -622,21 +708,19 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
         fs.writeFileSync(path.join(repoDir, "feature.txt"), "feature\n");
 
-        const { manager, cliCalls } = yield* makeManager({
-          hostingScenario: {
+        const { manager, ghCalls } = yield* makeManager({
+          ghScenario: {
             prListSequence: [
-              [],
-              [
+              "[]",
+              JSON.stringify([
                 {
                   number: 77,
                   title: "Add no-upstream PR flow",
                   url: "https://github.com/pingdotgg/codething-mvp/pull/77",
                   baseRefName: "main",
                   headRefName: "feature/no-upstream-pr",
-                  state: "open",
-                  updatedAt: null,
                 },
-              ],
+              ]),
             ],
           },
         });
@@ -657,8 +741,8 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           ),
         ).toBe("origin/feature/no-upstream-pr");
         expect(
-          cliCalls.some((call) =>
-            call.includes("createPullRequest base=main head=feature/no-upstream-pr"),
+          ghCalls.some((call) =>
+            call.includes("pr create --base main --head feature/no-upstream-pr"),
           ),
         ).toBe(true);
       }),
@@ -694,20 +778,18 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
       yield* runGit(repoDir, ["push", "-u", "origin", "feature/existing-pr"]);
 
-      const { manager, cliCalls } = yield* makeManager({
-        hostingScenario: {
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
           prListSequence: [
-            [
+            JSON.stringify([
               {
                 number: 42,
                 title: "Existing PR",
                 url: "https://github.com/pingdotgg/codething-mvp/pull/42",
                 baseRefName: "main",
                 headRefName: "feature/existing-pr",
-                state: "open",
-                updatedAt: null,
               },
-            ],
+            ]),
           ],
         },
       });
@@ -719,7 +801,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(result.branch.status).toBe("skipped_not_requested");
       expect(result.pr.status).toBe("opened_existing");
       expect(result.pr.number).toBe(42);
-      expect(cliCalls.some((call) => call.startsWith("pr view "))).toBe(false);
+      expect(ghCalls.some((call) => call.startsWith("pr view "))).toBe(false);
     }),
   );
 
@@ -736,21 +818,19 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       yield* runGit(repoDir, ["push", "-u", "origin", "feature-create-pr"]);
       yield* runGit(repoDir, ["config", "branch.feature-create-pr.gh-merge-base", "main"]);
 
-      const { manager, cliCalls } = yield* makeManager({
-        hostingScenario: {
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
           prListSequence: [
-            [],
-            [
+            "[]",
+            JSON.stringify([
               {
                 number: 88,
                 title: "Add stacked git actions",
                 url: "https://github.com/pingdotgg/codething-mvp/pull/88",
                 baseRefName: "main",
                 headRefName: "feature-create-pr",
-                state: "open",
-                updatedAt: null,
               },
-            ],
+            ]),
           ],
         },
       });
@@ -763,9 +843,9 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(result.pr.status).toBe("created");
       expect(result.pr.number).toBe(88);
       expect(
-        cliCalls.some((call) => call.includes("createPullRequest base=main head=feature-create-pr")),
+        ghCalls.some((call) => call.includes("pr create --base main --head feature-create-pr")),
       ).toBe(true);
-      expect(cliCalls.some((call) => call.startsWith("pr view "))).toBe(false);
+      expect(ghCalls.some((call) => call.startsWith("pr view "))).toBe(false);
     }),
   );
 
@@ -797,9 +877,9 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       yield* runGit(repoDir, ["push", "-u", "origin", "feature/gh-missing"]);
 
       const { manager } = yield* makeManager({
-        hostingScenario: {
-          failWith: new GitHostingCliError({
-            operation: "createPullRequest",
+        ghScenario: {
+          failWith: new GitHubCliError({
+            operation: "execute",
             detail: "GitHub CLI (`gh`) is required but not available on PATH.",
           }),
         },
@@ -826,9 +906,9 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       yield* runGit(repoDir, ["push", "-u", "origin", "feature/gh-auth"]);
 
       const { manager } = yield* makeManager({
-        hostingScenario: {
-          failWith: new GitHostingCliError({
-            operation: "createPullRequest",
+        ghScenario: {
+          failWith: new GitHubCliError({
+            operation: "execute",
             detail: "GitHub CLI is not authenticated. Run `gh auth login` and retry.",
           }),
         },
