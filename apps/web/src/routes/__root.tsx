@@ -6,7 +6,7 @@ import {
   useNavigate,
   useRouterState,
 } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { type CSSProperties, useEffect, useRef } from "react";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 
 import { APP_DISPLAY_NAME } from "../branding";
@@ -55,7 +55,10 @@ function RootRouteView() {
         <EventRouter />
         <DesktopProjectBootstrap />
         {isElectron ? (
-          <div className="flex h-screen flex-col bg-background text-foreground">
+          <div
+            className="flex h-screen flex-col bg-background text-foreground"
+            style={{ "--desktop-titlebar-height": "1.75rem" } as CSSProperties}
+          >
             <DesktopTitleBar />
             <div className="min-h-0 flex-1">
               <Outlet />
