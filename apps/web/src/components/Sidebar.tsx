@@ -992,32 +992,7 @@ export default function Sidebar() {
 
   return (
     <>
-      {isElectron ? (
-        <>
-          <SidebarHeader className="drag-region h-[52px] flex-row items-center gap-2 px-4 py-0 pl-[82px]">
-            {wordmark}
-            {showDesktopUpdateButton && (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      aria-label={desktopUpdateTooltip}
-                      aria-disabled={desktopUpdateButtonDisabled || undefined}
-                      disabled={desktopUpdateButtonDisabled}
-                      className={`inline-flex size-7 ml-auto mt-2 items-center justify-center rounded-md text-muted-foreground transition-colors ${desktopUpdateButtonInteractivityClasses} ${desktopUpdateButtonClasses}`}
-                      onClick={handleDesktopUpdateButtonClick}
-                    >
-                      <RocketIcon className="size-3.5" />
-                    </button>
-                  }
-                />
-                <TooltipPopup side="bottom">{desktopUpdateTooltip}</TooltipPopup>
-              </Tooltip>
-            )}
-          </SidebarHeader>
-        </>
-      ) : (
+      {isElectron ? null : (
         <SidebarHeader className="gap-3 px-3 py-2 sm:gap-2.5 sm:px-4 sm:py-3">
           {wordmark}
         </SidebarHeader>
@@ -1297,14 +1272,40 @@ export default function Sidebar() {
       </SidebarContent>
 
       <SidebarSeparator />
-      <SidebarFooter className="gap-0 p-3">
+      <SidebarFooter className="gap-2 p-3">
+        {showDesktopUpdateButton ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={desktopUpdateTooltip}
+                  aria-disabled={desktopUpdateButtonDisabled || undefined}
+                  disabled={desktopUpdateButtonDisabled}
+                  className={`flex w-full items-center justify-center gap-2 rounded-md border border-border px-2 py-1.5 text-xs transition-colors ${desktopUpdateButtonInteractivityClasses} ${desktopUpdateButtonClasses}`}
+                  onClick={handleDesktopUpdateButtonClick}
+                >
+                  <RocketIcon className="size-3.5" />
+                  <span className="truncate">
+                    {desktopUpdateButtonAction === "install"
+                      ? "Install update"
+                      : desktopUpdateState?.status === "downloading"
+                        ? "Downloading update..."
+                        : "Update available"}
+                  </span>
+                </button>
+              }
+            />
+            <TooltipPopup side="top">{desktopUpdateTooltip}</TooltipPopup>
+          </Tooltip>
+        ) : null}
         {addingProject ? (
           <>
-            <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
+            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
               Add project
             </p>
             <input
-              className="mb-2 w-full rounded-md border border-border bg-secondary px-2 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-ring focus:outline-none"
+              className="w-full rounded-md border border-border bg-secondary px-2 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-ring focus:outline-none"
               placeholder="/path/to/project"
               value={newCwd}
               onChange={(event) => setNewCwd(event.target.value)}
@@ -1316,7 +1317,7 @@ export default function Sidebar() {
             {isElectron && (
               <button
                 type="button"
-                className="mb-2 flex w-full items-center justify-center rounded-md border border-border px-2 py-1.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex w-full items-center justify-center rounded-md border border-border px-2 py-1.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
                 onClick={() => void handlePickFolder()}
                 disabled={isPickingFolder || isAddingProject}
               >
