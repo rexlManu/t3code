@@ -52,4 +52,24 @@ describe("readPathFromLoginShell", () => {
     expect(args?.[1]).toContain("__T3CODE_PATH_END__");
     expect(options).toEqual({ encoding: "utf8", timeout: 5000 });
   });
+
+  it("falls back to a non-interactive login shell probe", () => {
+    const execFile = vi
+      .fn<
+        (
+          file: string,
+          args: ReadonlyArray<string>,
+          options: { encoding: "utf8"; timeout: number },
+        ) => string
+      >()
+      .mockImplementationOnce(() => {
+        throw new Error("interactive shell unavailable");
+      })
+      .mockImplementationOnce(() => "__T3CODE_PATH_START__\n/c:/d\n__T3CODE_PATH_END__\n");
+
+    expect(readPathFromLoginShell("/bin/sh", execFile)).toBe("/c:/d");
+    expect(execFile).toHaveBeenCalledTimes(2);
+    expect(execFile.mock.calls[0]?.[1]).toEqual(["-ilc", expect.any(String)]);
+    expect(execFile.mock.calls[1]?.[1]).toEqual(["-lc", expect.any(String)]);
+  });
 });

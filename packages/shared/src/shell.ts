@@ -30,9 +30,25 @@ export function readPathFromLoginShell(
   shell: string,
   execFile: ExecFileSyncLike = execFileSync,
 ): string | undefined {
-  const output = execFile(shell, ["-ilc", PATH_CAPTURE_COMMAND], {
-    encoding: "utf8",
-    timeout: 5000,
-  });
-  return extractPathFromShellOutput(output) ?? undefined;
+  const commandArgSets = [
+    ["-ilc", PATH_CAPTURE_COMMAND],
+    ["-lc", PATH_CAPTURE_COMMAND],
+  ] as const;
+
+  for (const args of commandArgSets) {
+    try {
+      const output = execFile(shell, args, {
+        encoding: "utf8",
+        timeout: 5000,
+      });
+      const path = extractPathFromShellOutput(output);
+      if (path) {
+        return path;
+      }
+    } catch {
+      // Fall back to the next shell invocation mode.
+    }
+  }
+
+  return undefined;
 }
