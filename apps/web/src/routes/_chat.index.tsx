@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { DesktopTitleBar } from "../components/DesktopTitleBar";
 import { isElectron } from "../env";
 import { SidebarTrigger } from "../components/ui/sidebar";
 
@@ -15,8 +14,6 @@ function ChatIndexRouteView() {
           </div>
         </header>
       )}
-
-      {isElectron ? <DesktopTitleBar /> : null}
 
       <div className="flex flex-1 items-center justify-center">
         <div className="text-center">

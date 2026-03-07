@@ -54,7 +54,16 @@ function RootRouteView() {
       <AnchoredToastProvider>
         <EventRouter />
         <DesktopProjectBootstrap />
-        <Outlet />
+        {isElectron ? (
+          <div className="flex h-screen flex-col bg-background text-foreground">
+            <DesktopTitleBar />
+            <div className="min-h-0 flex-1">
+              <Outlet />
+            </div>
+          </div>
+        ) : (
+          <Outlet />
+        )}
       </AnchoredToastProvider>
     </ToastProvider>
   );
