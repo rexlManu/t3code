@@ -5614,7 +5614,7 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   opencodeModelCatalog: ServerProviderModelCatalog | null;
   serviceTierSetting: AppServiceTier;
   disabled?: boolean;
-  codexRateLimits?: ServerCodexRateLimits;
+  codexRateLimits?: ServerCodexRateLimits | undefined;
   onProviderModelChange: (provider: ProviderKind, model: ModelSlug) => void;
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
