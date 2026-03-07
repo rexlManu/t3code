@@ -139,10 +139,10 @@ export function DesktopTitleBar() {
         !windowState.isFocused && "opacity-[0.88]",
       )}
     >
-      <div className="flex w-64 shrink-0 items-center border-r border-border bg-card px-3">
+      <div className="flex min-w-0 items-center px-4">
         <TitleBarBrand focused={windowState.isFocused} />
       </div>
-      <div className="flex min-w-0 flex-1 items-center px-1">
+      <div className="flex min-w-0 flex-1 items-center pl-2 pr-1">
         <div className="min-w-0 flex-1" />
         <TitleBarWindowControls windowState={windowState} />
       </div>
