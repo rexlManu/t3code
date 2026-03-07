@@ -4,7 +4,7 @@ import {
   type ProviderRuntimeEvent,
   type ProviderSession,
 } from "@t3tools/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { OpenCodeServerManager } from "./opencodeServerManager.ts";
 
@@ -13,6 +13,7 @@ const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 
 function createContext(overrides?: {
   readonly activeTurnId?: TurnId | undefined;
+  readonly client?: Record<string, unknown>;
 }): Record<string, unknown> {
   const now = new Date().toISOString();
   const session: ProviderSession = {
@@ -29,7 +30,7 @@ function createContext(overrides?: {
   return {
     threadId: asThreadId("thread-1"),
     directory: process.cwd(),
-    client: {} as never,
+    client: (overrides?.client ?? {}) as never,
     providerSessionId: "session-1",
     pendingPermissions: new Map(),
     pendingQuestions: new Map(),
@@ -219,5 +220,41 @@ describe("OpenCodeServerManager", () => {
       { path: "apps/server/src/opencodeServerManager.ts" },
       { path: "apps/web/src/session-logic.ts" },
     ]);
+  });
+
+  it("forwards opencode reasoning effort as the prompt variant", async () => {
+    const manager = new OpenCodeServerManager();
+    const promptAsync = vi.fn(async () => undefined);
+    const context = createContext({
+      client: {
+        session: {
+          promptAsync,
+        },
+      },
+    });
+
+    (
+      manager as unknown as {
+        sessions: Map<ThreadId, Record<string, unknown>>;
+      }
+    ).sessions.set(asThreadId("thread-1"), context);
+
+    await manager.sendTurn({
+      threadId: asThreadId("thread-1"),
+      input: "Inspect the failing test",
+      model: "openai/gpt-5",
+      modelOptions: {
+        opencode: {
+          reasoningEffort: "xhigh",
+        },
+      },
+    });
+
+    expect(promptAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionID: "session-1",
+        variant: "xhigh",
+      }),
+    );
   });
 });

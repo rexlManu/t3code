@@ -186,6 +186,32 @@ it.effect("accepts provider-scoped model options in thread.turn.start", () =>
   }),
 );
 
+it.effect("accepts opencode reasoning effort options in thread.turn.start", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeThreadTurnStartCommand({
+      type: "thread.turn.start",
+      commandId: "cmd-turn-opencode-options",
+      threadId: "thread-1",
+      message: {
+        messageId: "msg-opencode-options",
+        role: "user",
+        text: "hello",
+        attachments: [],
+      },
+      provider: "opencode",
+      model: "openai/gpt-5",
+      modelOptions: {
+        opencode: {
+          reasoningEffort: "xhigh",
+        },
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(parsed.provider, "opencode");
+    assert.strictEqual(parsed.modelOptions?.opencode?.reasoningEffort, "xhigh");
+  }),
+);
+
 it.effect(
   "decodes thread.turn-start-requested defaults for provider, runtime mode, and interaction mode",
   () =>

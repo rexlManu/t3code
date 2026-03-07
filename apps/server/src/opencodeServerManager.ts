@@ -567,6 +567,7 @@ export class OpenCodeServerManager extends EventEmitter<OpenCodeManagerEvents> {
     const agent =
       input.modelOptions?.opencode?.agent ??
       (input.interactionMode === "plan" ? "plan" : undefined);
+    const variant = input.modelOptions?.opencode?.reasoningEffort;
     const parsedModel = parseOpencodeModel(input.model);
     const providerId = input.modelOptions?.opencode?.providerId ?? parsedModel?.providerId;
     const modelId = input.modelOptions?.opencode?.modelId ?? parsedModel?.modelId ?? input.model;
@@ -618,6 +619,7 @@ export class OpenCodeServerManager extends EventEmitter<OpenCodeManagerEvents> {
               }
             : {}),
           ...(agent ? { agent } : {}),
+          ...(variant ? { variant } : {}),
           parts: [textPart(input.input ?? "")],
         }),
       );
