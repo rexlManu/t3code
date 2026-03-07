@@ -417,14 +417,12 @@ export function findLatestProposedPlan(
 export function deriveWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
   latestTurnId: TurnId | undefined,
+  provider?: ProviderKind | null,
 ): WorkLogEntry[] {
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
   const visibleActivities = ordered
     .filter((activity) => (latestTurnId ? activity.turnId === latestTurnId : true))
-    .filter((activity) => activity.kind !== "tool.started")
-    .filter((activity) => activity.kind !== "task.started" && activity.kind !== "task.completed")
-    .filter((activity) => activity.summary !== "Checkpoint captured");
-
+    .filter((activity) => !shouldHideWorkLogActivity(activity, provider))
   return mergeReasoningActivities(visibleActivities).map((activity) => {
       const payload =
         activity.payload && typeof activity.payload === "object"
@@ -461,6 +459,32 @@ export function deriveWorkLogEntries(
       }
       return entry;
     });
+}
+
+function shouldHideWorkLogActivity(
+  activity: OrchestrationThreadActivity,
+  provider?: ProviderKind | null,
+): boolean {
+  if (activity.kind === "tool.started") {
+    return true;
+  }
+  if (activity.kind === "task.started" || activity.kind === "task.completed") {
+    return true;
+  }
+  if (activity.summary === "Checkpoint captured") {
+    return true;
+  }
+  if (provider !== "opencode") {
+    return false;
+  }
+
+  return (
+    activity.kind === "task.progress" ||
+    activity.kind === "tool.updated" ||
+    activity.kind === "turn.plan.updated" ||
+    activity.kind === "approval.resolved" ||
+    activity.kind === "user-input.resolved"
+  );
 }
 
 function mergeReasoningActivities(
