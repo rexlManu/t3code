@@ -26,7 +26,7 @@ interface TeaRepoMetadata {
 }
 
 type GitHostingProvider =
-  | { readonly kind: "github" }
+  | { readonly kind: "github"; readonly repoSlug: string }
   | { readonly kind: "tea"; readonly loginName: string; readonly host: string }
   | { readonly kind: "unsupported"; readonly host: string | null };
 
@@ -72,6 +72,55 @@ function parseGitRemoteHost(remoteUrl: string | null): string | null {
 
   const scpLikeMatch = trimmed.match(/^(?:[^@]+@)?(\[[^\]]+\]|[^:]+):.+$/);
   return scpLikeMatch?.[1] ? toNormalizedHost(scpLikeMatch[1]) : null;
+}
+
+function parseGitHubRepoSlug(remoteUrl: string | null): string | null {
+  const trimmed = remoteUrl?.trim();
+  if (!trimmed) return null;
+
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      const pathParts = parsed.pathname
+        .replace(/^\/+/, "")
+        .replace(/\/+$/, "")
+        .split("/")
+        .filter((part) => part.length > 0);
+      if (pathParts.length < 2) {
+        return null;
+      }
+      const owner = pathParts.at(-2);
+      const repo = pathParts.at(-1)?.replace(/\.git$/i, "");
+      if (!owner || !repo) {
+        return null;
+      }
+      return `${owner}/${repo}`;
+    } catch {
+      return null;
+    }
+  }
+
+  const scpLikeMatch = trimmed.match(/^(?:[^@]+@)?(?:\[[^\]]+\]|[^:]+):(.+)$/);
+  if (!scpLikeMatch?.[1]) {
+    return null;
+  }
+
+  const pathParts = scpLikeMatch[1]
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "")
+    .split("/")
+    .filter((part) => part.length > 0);
+  if (pathParts.length < 2) {
+    return null;
+  }
+
+  const owner = pathParts.at(-2);
+  const repo = pathParts.at(-1)?.replace(/\.git$/i, "");
+  if (!owner || !repo) {
+    return null;
+  }
+
+  return `${owner}/${repo}`;
 }
 
 function isGitHubHost(host: string | null): boolean {
@@ -452,7 +501,11 @@ const makeGitHostingCli = Effect.gen(function* () {
       const originUrl = yield* gitCore.getOriginUrl(cwd).pipe(Effect.catch(() => Effect.succeed(null)));
       const host = parseGitRemoteHost(originUrl);
       if (isGitHubHost(host)) {
-        return { kind: "github" } as const;
+        const repoSlug = parseGitHubRepoSlug(originUrl);
+        if (repoSlug) {
+          return { kind: "github", repoSlug } as const;
+        }
+        return { kind: "unsupported", host } as const;
       }
       if (!host) {
         return { kind: "unsupported", host: null } as const;
@@ -529,6 +582,8 @@ const makeGitHostingCli = Effect.gen(function* () {
               cwd: input.cwd,
               operation: "listPullRequests",
               args: [
+                "--repo",
+                provider.repoSlug,
                 "pr",
                 "list",
                 "--head",
@@ -612,6 +667,8 @@ const makeGitHostingCli = Effect.gen(function* () {
                     cwd: input.cwd,
                     operation: "createPullRequest",
                     args: [
+                      "--repo",
+                      provider.repoSlug,
                       "pr",
                       "create",
                       "--base",
@@ -656,7 +713,16 @@ const makeGitHostingCli = Effect.gen(function* () {
             return executeGitHub({
               cwd: input.cwd,
               operation: "getDefaultBranch",
-              args: ["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"],
+              args: [
+                "--repo",
+                provider.repoSlug,
+                "repo",
+                "view",
+                "--json",
+                "defaultBranchRef",
+                "--jq",
+                ".defaultBranchRef.name",
+              ],
             }).pipe(
               Effect.map((result) => {
                 const trimmed = result.stdout.trim();
