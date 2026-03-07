@@ -73,9 +73,10 @@ export function makeOpenCodeAdapterLive(options: OpenCodeAdapterLiveOptions = {}
           return listener;
         }),
         (listener) =>
-          Effect.sync(() => {
+          Effect.gen(function* () {
             manager.off("event", listener);
             manager.stopAll();
+            yield* Queue.shutdown(runtimeEventQueue);
           }),
       );
 

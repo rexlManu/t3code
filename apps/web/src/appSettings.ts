@@ -47,6 +47,7 @@ const AppSettingsSchema = Schema.Struct({
     Schema.withConstructorDefault(() => Option.some([])),
   ),
   customOpencodeModels: Schema.Array(Schema.String).pipe(
+    Schema.withDecodingDefault(() => []),
     Schema.withConstructorDefault(() => Option.some([])),
   ),
 });
