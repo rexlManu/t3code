@@ -3470,12 +3470,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             </div>
           </header>
         )}
-        {isElectron ? (
-          <DesktopTitleBar
-            title="No active thread"
-            subtitle="Select a thread or create a new one to get started."
-          />
-        ) : null}
+        {isElectron ? <DesktopTitleBar /> : null}
         <div className="flex flex-1 items-center justify-center">
           <div className="text-center">
             <p className="text-sm">Select a thread or create a new one to get started.</p>
@@ -3487,75 +3482,31 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
-      {/* Top bar */}
-      {isElectron ? (
-        <DesktopTitleBar
-          title={activeThread.title}
-          subtitle={activeProject?.name ?? "Conversation"}
-          meta={
-            <>
-              {activeProject?.name ? (
-                <Badge variant="outline" className="max-w-28 shrink-0 truncate">
-                  {activeProject.name}
-                </Badge>
-              ) : null}
-              {activeProject?.name && !isGitRepo ? (
-                <Badge variant="outline" className="shrink-0 text-[10px] text-amber-700">
-                  No Git
-                </Badge>
-              ) : null}
-            </>
+      {isElectron ? <DesktopTitleBar /> : null}
+      <header className="border-b border-border px-3 py-2 sm:px-5 sm:py-3">
+        <ChatHeader
+          activeThreadId={activeThread.id}
+          activeThreadTitle={activeThread.title}
+          activeProjectName={activeProject?.name}
+          isGitRepo={isGitRepo}
+          openInCwd={activeThread.worktreePath ?? activeProject?.cwd ?? null}
+          activeProjectScripts={activeProject?.scripts}
+          preferredScriptId={
+            activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
           }
-          trailing={
-            <ChatHeaderActions
-              activeThreadId={activeThread.id}
-              activeProjectName={activeProject?.name}
-              isGitRepo={isGitRepo}
-              openInCwd={activeThread.worktreePath ?? activeProject?.cwd ?? null}
-              activeProjectScripts={activeProject?.scripts}
-              preferredScriptId={
-                activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
-              }
-              keybindings={keybindings}
-              availableEditors={availableEditors}
-              diffToggleShortcutLabel={diffPanelShortcutLabel}
-              gitCwd={gitCwd}
-              diffOpen={diffOpen}
-              onRunProjectScript={(script) => {
-                void runProjectScript(script);
-              }}
-              onAddProjectScript={saveProjectScript}
-              onUpdateProjectScript={updateProjectScript}
-              onToggleDiff={onToggleDiff}
-            />
-          }
+          keybindings={keybindings}
+          availableEditors={availableEditors}
+          diffToggleShortcutLabel={diffPanelShortcutLabel}
+          gitCwd={gitCwd}
+          diffOpen={diffOpen}
+          onRunProjectScript={(script) => {
+            void runProjectScript(script);
+          }}
+          onAddProjectScript={saveProjectScript}
+          onUpdateProjectScript={updateProjectScript}
+          onToggleDiff={onToggleDiff}
         />
-      ) : (
-        <header className="border-b border-border px-3 py-2 sm:px-5 sm:py-3">
-          <ChatHeader
-            activeThreadId={activeThread.id}
-            activeThreadTitle={activeThread.title}
-            activeProjectName={activeProject?.name}
-            isGitRepo={isGitRepo}
-            openInCwd={activeThread.worktreePath ?? activeProject?.cwd ?? null}
-            activeProjectScripts={activeProject?.scripts}
-            preferredScriptId={
-              activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
-            }
-            keybindings={keybindings}
-            availableEditors={availableEditors}
-            diffToggleShortcutLabel={diffPanelShortcutLabel}
-            gitCwd={gitCwd}
-            diffOpen={diffOpen}
-            onRunProjectScript={(script) => {
-              void runProjectScript(script);
-            }}
-            onAddProjectScript={saveProjectScript}
-            onUpdateProjectScript={updateProjectScript}
-            onToggleDiff={onToggleDiff}
-          />
-        </header>
-      )}
+      </header>
 
       {/* Error banner */}
       <ProviderHealthBanner status={activeProviderStatus} />

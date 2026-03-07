@@ -16,12 +16,7 @@ function ChatIndexRouteView() {
         </header>
       )}
 
-      {isElectron ? (
-        <DesktopTitleBar
-          title="No active thread"
-          subtitle="Select a thread or create a new one to start working."
-        />
-      ) : null}
+      {isElectron ? <DesktopTitleBar /> : null}
 
       <div className="flex flex-1 items-center justify-center">
         <div className="text-center">

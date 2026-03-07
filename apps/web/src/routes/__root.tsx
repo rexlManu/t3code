@@ -39,12 +39,7 @@ function RootRouteView() {
   if (!readNativeApi()) {
     return (
       <div className="flex h-screen flex-col bg-background text-foreground">
-        {isElectron ? (
-          <DesktopTitleBar
-            title="Starting T3 Code"
-            subtitle={`Connecting to the ${APP_DISPLAY_NAME} local server.`}
-          />
-        ) : null}
+        {isElectron ? <DesktopTitleBar /> : null}
         <div className="flex flex-1 items-center justify-center">
           <p className="text-sm text-muted-foreground">
             Connecting to {APP_DISPLAY_NAME} server...
@@ -71,9 +66,7 @@ function RootRouteErrorView({ error, reset }: ErrorComponentProps) {
 
   return (
     <div className="relative flex min-h-screen flex-col overflow-hidden bg-background text-foreground">
-      {isElectron ? (
-        <DesktopTitleBar title="App error" subtitle="The desktop shell hit a fatal renderer error." />
-      ) : null}
+      {isElectron ? <DesktopTitleBar /> : null}
       <div className="pointer-events-none absolute inset-0 opacity-80">
         <div className="absolute inset-x-0 top-0 h-44 bg-[radial-gradient(44rem_16rem_at_top,color-mix(in_srgb,var(--color-red-500)_16%,transparent),transparent)]" />
         <div className="absolute inset-0 bg-[linear-gradient(145deg,color-mix(in_srgb,var(--background)_90%,var(--color-black))_0%,var(--background)_55%)]" />

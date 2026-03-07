@@ -197,12 +197,7 @@ function SettingsRouteView() {
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground isolate">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
-        {isElectron ? (
-          <DesktopTitleBar
-            title="Settings"
-            subtitle="Configure desktop preferences, models, and editor integrations."
-          />
-        ) : null}
+        {isElectron ? <DesktopTitleBar /> : null}
 
         <div className="flex-1 overflow-y-auto p-6">
           <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
