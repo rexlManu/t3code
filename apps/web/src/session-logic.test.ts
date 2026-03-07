@@ -478,6 +478,41 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.command).toBe("pnpm lint");
   });
 
+  it("extracts rich OpenCode tool call details", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "opencode-rich-tool",
+        kind: "tool.completed",
+        summary: "Web search complete",
+        payload: {
+          itemType: "web_search",
+          status: "completed",
+          data: {
+            item: {
+              tool: "search",
+              state: {
+                input: {
+                  query: "opencode variants",
+                  limit: 5,
+                },
+                output: "Found matching docs and examples",
+              },
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry?.toolCall).toEqual({
+      name: "search",
+      status: "completed",
+      itemType: "web_search",
+      input: '{\n  "query": "opencode variants",\n  "limit": 5\n}',
+      output: "Found matching docs and examples",
+    });
+  });
+
   it("extracts changed file paths for file-change tool activities", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

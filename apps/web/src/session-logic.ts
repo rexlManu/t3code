@@ -36,6 +36,13 @@ export interface WorkLogEntry {
   detail?: string;
   command?: string;
   changedFiles?: ReadonlyArray<string>;
+  toolCall?: {
+    name: string;
+    status?: string;
+    itemType?: string;
+    input?: string;
+    output?: string;
+  };
   tone: "thinking" | "tool" | "info" | "error";
 }
 
@@ -444,6 +451,10 @@ export function deriveWorkLogEntries(
       if (changedFiles.length > 0) {
         entry.changedFiles = changedFiles;
       }
+      const toolCall = extractToolCall(payload, command);
+      if (toolCall) {
+        entry.toolCall = toolCall;
+      }
       return entry;
     });
 }
@@ -494,6 +505,81 @@ function extractToolCommand(payload: Record<string, unknown> | null): string | n
     normalizeCommandValue(data?.command),
   ];
   return candidates.find((candidate) => candidate !== null) ?? null;
+}
+
+function truncatePreview(value: string, maxChars = 800, maxLines = 10): string | null {
+  const normalized = value.replace(/\r\n/g, "\n").trim();
+  if (normalized.length === 0) {
+    return null;
+  }
+  const lines = normalized.split("\n");
+  const lineLimited =
+    lines.length > maxLines ? `${lines.slice(0, maxLines).join("\n")}\n...` : normalized;
+  if (lineLimited.length <= maxChars) {
+    return lineLimited;
+  }
+  return `${lineLimited.slice(0, maxChars - 3).trimEnd()}...`;
+}
+
+function stringifyPreview(value: unknown): string | null {
+  if (typeof value === "string") {
+    return truncatePreview(value);
+  }
+  if (value === null || value === undefined) {
+    return null;
+  }
+  try {
+    const serialized = JSON.stringify(value, null, 2);
+    return typeof serialized === "string" ? truncatePreview(serialized) : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractToolCall(
+  payload: Record<string, unknown> | null,
+  command: string | null,
+): WorkLogEntry["toolCall"] | undefined {
+  const itemType = asTrimmedString(payload?.itemType);
+  const status = asTrimmedString(payload?.status);
+  const data = asRecord(payload?.data);
+  const item = asRecord(data?.item);
+  const state = asRecord(item?.state);
+  const stateInput = asRecord(state?.input);
+  const metadata = asRecord(state?.metadata);
+  const name = asTrimmedString(item?.tool);
+
+  if (!name && !itemType) {
+    return undefined;
+  }
+
+  const toolCall: NonNullable<WorkLogEntry["toolCall"]> = {
+    name: name ?? "tool",
+    ...(status ? { status } : {}),
+    ...(itemType ? { itemType } : {}),
+  };
+
+  const previewInput =
+    stateInput && Object.keys(stateInput).length > 0
+      ? Object.fromEntries(
+          Object.entries(stateInput).filter(([key]) => key !== "command" && key !== "cmd" && key !== "argv"),
+        )
+      : null;
+  const inputPreview =
+    previewInput && Object.keys(previewInput).length > 0 ? stringifyPreview(previewInput) : null;
+  const outputPreview =
+    stringifyPreview(state?.output) ??
+    stringifyPreview(metadata?.output) ??
+    stringifyPreview(state?.error);
+
+  if (inputPreview && inputPreview !== command) {
+    toolCall.input = inputPreview;
+  }
+  if (outputPreview) {
+    toolCall.output = outputPreview;
+  }
+
+  return toolCall;
 }
 
 function pushChangedFile(target: string[], seen: Set<string>, value: unknown) {

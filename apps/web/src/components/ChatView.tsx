@@ -295,6 +295,42 @@ function workToneClass(tone: "thinking" | "tool" | "info" | "error"): string {
   return "text-muted-foreground/40";
 }
 
+function formatWorkToolStatus(status: string | undefined): string | null {
+  switch (status) {
+    case "inProgress":
+      return "Running";
+    case "completed":
+      return "Completed";
+    case "failed":
+      return "Failed";
+    case "declined":
+      return "Declined";
+    default:
+      return null;
+  }
+}
+
+function formatWorkToolType(itemType: string | undefined): string | null {
+  switch (itemType) {
+    case "command_execution":
+      return "Command";
+    case "file_change":
+      return "File change";
+    case "mcp_tool_call":
+      return "MCP";
+    case "dynamic_tool_call":
+      return "Tool";
+    case "collab_agent_tool_call":
+      return "Agent";
+    case "web_search":
+      return "Search";
+    case "image_view":
+      return "Image";
+    default:
+      return null;
+  }
+}
+
 function normalizePlanMarkdownForExport(planMarkdown: string): string {
   return `${planMarkdown.trimEnd()}\n`;
 }
@@ -5058,38 +5094,102 @@ const MessagesTimeline = memo(function MessagesTimeline({
                       <p className={`text-[11px] leading-relaxed ${workToneClass(workEntry.tone)}`}>
                         {workEntry.label}
                       </p>
-                      {workEntry.command && (
-                        <pre className="mt-1 overflow-x-auto rounded-md border border-border/70 bg-background/80 px-2 py-1 font-mono text-[11px] leading-relaxed text-foreground/80">
-                          {workEntry.command}
-                        </pre>
-                      )}
-                      {workEntry.changedFiles && workEntry.changedFiles.length > 0 && (
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {workEntry.changedFiles.slice(0, 6).map((filePath) => (
-                            <span
-                              key={`${workEntry.id}:${filePath}`}
-                              className="rounded-md border border-border/70 bg-background/65 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/85"
-                              title={filePath}
+                      {workEntry.toolCall ? (
+                        <div className="mt-1 rounded-md border border-border/70 bg-background/75 px-2 py-2">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="rounded-md border border-border/60 bg-background/80 px-1.5 py-0.5 font-mono text-[10px] text-foreground/85">
+                              {workEntry.toolCall.name}
+                            </span>
+                            {formatWorkToolType(workEntry.toolCall.itemType) ? (
+                              <span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground/60">
+                                {formatWorkToolType(workEntry.toolCall.itemType)}
+                              </span>
+                            ) : null}
+                            {formatWorkToolStatus(workEntry.toolCall.status) ? (
+                              <span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground/60">
+                                {formatWorkToolStatus(workEntry.toolCall.status)}
+                              </span>
+                            ) : null}
+                          </div>
+                          {workEntry.command ? (
+                            <pre className="mt-2 overflow-x-auto rounded-md border border-border/70 bg-background/85 px-2 py-1 font-mono text-[11px] leading-relaxed text-foreground/80">
+                              {workEntry.command}
+                            </pre>
+                          ) : null}
+                          {workEntry.toolCall.input ? (
+                            <pre className="mt-2 overflow-x-auto rounded-md border border-border/60 bg-background/70 px-2 py-1 font-mono text-[11px] leading-relaxed text-muted-foreground/85">
+                              {workEntry.toolCall.input}
+                            </pre>
+                          ) : null}
+                          {workEntry.changedFiles && workEntry.changedFiles.length > 0 ? (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {workEntry.changedFiles.slice(0, 6).map((filePath) => (
+                                <span
+                                  key={`${workEntry.id}:${filePath}`}
+                                  className="rounded-md border border-border/70 bg-background/65 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/85"
+                                  title={filePath}
+                                >
+                                  {filePath}
+                                </span>
+                              ))}
+                              {workEntry.changedFiles.length > 6 ? (
+                                <span className="px-1 text-[10px] text-muted-foreground/65">
+                                  +{workEntry.changedFiles.length - 6} more
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : null}
+                          {workEntry.toolCall.output ? (
+                            <pre className="mt-2 overflow-x-auto rounded-md border border-border/60 bg-background/70 px-2 py-1 font-mono text-[11px] leading-relaxed text-muted-foreground/85">
+                              {workEntry.toolCall.output}
+                            </pre>
+                          ) : null}
+                          {workEntry.detail &&
+                          (!workEntry.command || workEntry.detail !== workEntry.command) ? (
+                            <p
+                              className="mt-2 text-[11px] leading-relaxed text-muted-foreground/75"
+                              title={workEntry.detail}
                             >
-                              {filePath}
-                            </span>
-                          ))}
-                          {workEntry.changedFiles.length > 6 && (
-                            <span className="px-1 text-[10px] text-muted-foreground/65">
-                              +{workEntry.changedFiles.length - 6} more
-                            </span>
-                          )}
+                              {workEntry.detail}
+                            </p>
+                          ) : null}
                         </div>
+                      ) : (
+                        <>
+                          {workEntry.command && (
+                            <pre className="mt-1 overflow-x-auto rounded-md border border-border/70 bg-background/80 px-2 py-1 font-mono text-[11px] leading-relaxed text-foreground/80">
+                              {workEntry.command}
+                            </pre>
+                          )}
+                          {workEntry.changedFiles && workEntry.changedFiles.length > 0 && (
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {workEntry.changedFiles.slice(0, 6).map((filePath) => (
+                                <span
+                                  key={`${workEntry.id}:${filePath}`}
+                                  className="rounded-md border border-border/70 bg-background/65 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/85"
+                                  title={filePath}
+                                >
+                                  {filePath}
+                                </span>
+                              ))}
+                              {workEntry.changedFiles.length > 6 && (
+                                <span className="px-1 text-[10px] text-muted-foreground/65">
+                                  +{workEntry.changedFiles.length - 6} more
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {workEntry.detail &&
+                            (!workEntry.command || workEntry.detail !== workEntry.command) && (
+                              <p
+                                className="mt-1 text-[11px] leading-relaxed text-muted-foreground/75"
+                                title={workEntry.detail}
+                              >
+                                {workEntry.detail}
+                              </p>
+                            )}
+                        </>
                       )}
-                      {workEntry.detail &&
-                        (!workEntry.command || workEntry.detail !== workEntry.command) && (
-                          <p
-                            className="mt-1 text-[11px] leading-relaxed text-muted-foreground/75"
-                            title={workEntry.detail}
-                          >
-                            {workEntry.detail}
-                          </p>
-                        )}
                     </div>
                   </div>
                 ))}
