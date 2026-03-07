@@ -121,7 +121,6 @@ import {
   type TurnDiffTreeNode,
 } from "../lib/turnDiffTree";
 import BranchToolbar from "./BranchToolbar";
-import { DesktopTitleBar } from "./DesktopTitleBar";
 import GitActionsControl from "./GitActionsControl";
 import {
   isOpenFavoriteEditorShortcut,
@@ -3470,7 +3469,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
             </div>
           </header>
         )}
-        {isElectron ? <DesktopTitleBar /> : null}
         <div className="flex flex-1 items-center justify-center">
           <div className="text-center">
             <p className="text-sm">Select a thread or create a new one to get started.</p>
@@ -3482,7 +3480,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
-      {isElectron ? <DesktopTitleBar /> : null}
       <header className="border-b border-border px-3 py-2 sm:px-5 sm:py-3">
         <ChatHeader
           activeThreadId={activeThread.id}

@@ -65,13 +65,13 @@ function WindowControlButton({
 
 function TitleBarBrand(props: { focused: boolean }) {
   return (
-    <div className="flex min-w-0 items-center gap-2.5">
-      <span className="flex size-5 items-center justify-center rounded-md bg-foreground text-[8px] font-black tracking-[0.18em] text-background">
+    <div className="flex min-w-0 items-center gap-2">
+      <span className="flex size-4.5 items-center justify-center rounded-[0.45rem] bg-foreground text-[7px] font-black tracking-[0.18em] text-background">
         T3
       </span>
       <span
         className={cn(
-          "truncate text-[13px] font-medium tracking-[0.01em]",
+          "truncate text-[12px] font-medium tracking-[0.01em]",
           props.focused ? "text-foreground" : "text-muted-foreground",
         )}
       >
@@ -98,24 +98,24 @@ function TitleBarWindowControls(props: { windowState: DesktopWindowState }) {
     <div className="no-drag ml-auto flex items-center gap-1">
       <WindowControlButton
         ariaLabel="Minimize window"
-        className="flex h-8 w-10 items-center justify-center rounded-md border border-transparent text-muted-foreground/80 transition-colors hover:bg-accent/70 hover:text-foreground"
+        className="flex h-6 w-8 items-center justify-center rounded-sm border border-transparent text-muted-foreground/80 transition-colors hover:bg-accent/70 hover:text-foreground"
         onClick={minimizeWindow}
       >
-        <MinusIcon className="size-3.5" />
+        <MinusIcon className="size-3" />
       </WindowControlButton>
       <WindowControlButton
         ariaLabel={props.windowState.isMaximized ? "Restore window" : "Maximize window"}
-        className="flex h-8 w-10 items-center justify-center rounded-md border border-transparent text-muted-foreground/80 transition-colors hover:bg-accent/70 hover:text-foreground"
+        className="flex h-6 w-8 items-center justify-center rounded-sm border border-transparent text-muted-foreground/80 transition-colors hover:bg-accent/70 hover:text-foreground"
         onClick={toggleMaximizeWindow}
       >
         <WindowControlGlyph maximized={props.windowState.isMaximized} />
       </WindowControlButton>
       <WindowControlButton
         ariaLabel="Close window"
-        className="flex h-8 w-10 items-center justify-center rounded-md border border-transparent text-muted-foreground/80 transition-colors hover:border-red-500/20 hover:bg-red-500/14 hover:text-red-600 dark:hover:text-red-300"
+        className="flex h-6 w-8 items-center justify-center rounded-sm border border-transparent text-muted-foreground/80 transition-colors hover:border-red-500/20 hover:bg-red-500/14 hover:text-red-600 dark:hover:text-red-300"
         onClick={closeWindow}
       >
-        <XIcon className="size-3.5" />
+        <XIcon className="size-3" />
       </WindowControlButton>
     </div>
   );
@@ -127,12 +127,14 @@ export function DesktopTitleBar() {
   return (
     <header
       className={cn(
-        "drag-region relative flex h-10 shrink-0 items-center border-b border-border bg-card px-3",
+        "drag-region flex h-7 shrink-0 items-center border-b border-border bg-background",
         !windowState.isFocused && "opacity-[0.88]",
       )}
     >
-      <div className="flex min-w-0 flex-1 items-center gap-3">
+      <div className="flex w-64 shrink-0 items-center border-r border-border bg-card px-3">
         <TitleBarBrand focused={windowState.isFocused} />
+      </div>
+      <div className="flex min-w-0 flex-1 items-center px-1">
         <div className="min-w-0 flex-1" />
         <TitleBarWindowControls windowState={windowState} />
       </div>
