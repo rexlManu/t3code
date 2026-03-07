@@ -803,6 +803,65 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("does not show the Codex provider banner when a draft thread selects OpenCode", async () => {
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: {
+          projectId: PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          envMode: "local",
+        },
+      },
+      projectDraftThreadIdByProjectId: {
+        [PROJECT_ID]: THREAD_ID,
+      },
+    });
+    useComposerDraftStore.getState().setProvider(THREAD_ID, "opencode");
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          providers: [
+            {
+              provider: "codex",
+              status: "error",
+              available: false,
+              authStatus: "unknown",
+              checkedAt: NOW_ISO,
+              message: "Codex CLI (`codex`) is not installed or not on PATH.",
+            },
+            {
+              provider: "opencode",
+              status: "ready",
+              available: true,
+              authStatus: "authenticated",
+              checkedAt: NOW_ISO,
+            },
+          ],
+        };
+      },
+    });
+
+    try {
+      await waitForComposerEditor();
+      await waitForLayout();
+
+      expect(document.body.textContent).not.toContain("Codex provider status");
+      expect(document.body.textContent).not.toContain(
+        "Codex CLI (`codex`) is not installed or not on PATH.",
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("toggles plan mode with Shift+Tab only while the composer is focused", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,

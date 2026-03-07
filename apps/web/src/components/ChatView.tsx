@@ -1501,7 +1501,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     serverConfigQuery.data?.availableEditors ?? EMPTY_AVAILABLE_EDITORS;
   const providerStatuses =
     serverConfigQuery.data?.providers ?? EMPTY_PROVIDER_STATUSES;
-  const activeProvider = activeThread?.session?.provider ?? 'codex';
+  const activeProvider = selectedProvider;
   const activeProviderStatus = useMemo(
     () =>
       providerStatuses.find((status) => status.provider === activeProvider) ??
