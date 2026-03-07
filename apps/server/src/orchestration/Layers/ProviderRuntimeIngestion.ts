@@ -306,6 +306,35 @@ function runtimeEventToActivities(
       ];
     }
 
+    case "content.delta": {
+      if (
+        event.payload.streamKind !== "reasoning_text" &&
+        event.payload.streamKind !== "reasoning_summary_text"
+      ) {
+        return [];
+      }
+      const detail = event.payload.delta;
+      if (detail.length === 0) {
+        return [];
+      }
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "reasoning.delta",
+          summary: event.payload.streamKind === "reasoning_summary_text" ? "Reasoning summary" : "Thinking",
+          payload: {
+            detail: truncateDetail(detail, 600),
+            streamKind: event.payload.streamKind,
+            taskId: event.itemId ?? event.turnId ?? event.eventId,
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
     case "user-input.requested": {
       return [
         {
@@ -447,7 +476,10 @@ function runtimeEventToActivities(
           summary: `${event.payload.title ?? "Tool"} complete`,
           payload: {
             itemType: event.payload.itemType,
+            ...(event.payload.status ? { status: event.payload.status } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
+            ...(event.payload.title ? { title: event.payload.title } : {}),
+            ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -469,6 +501,8 @@ function runtimeEventToActivities(
           payload: {
             itemType: event.payload.itemType,
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
+            ...(event.payload.title ? { title: event.payload.title } : {}),
+            ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,

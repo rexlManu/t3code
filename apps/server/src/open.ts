@@ -37,6 +37,10 @@ interface CommandAvailabilityOptions {
   readonly env?: NodeJS.ProcessEnv;
 }
 
+interface LaunchDetachedOptions {
+  readonly platform?: NodeJS.Platform;
+}
+
 const LINE_COLUMN_SUFFIX_PATTERN = /:\d+(?::\d+)?$/;
 
 function shouldUseGotoFlag(editorId: EditorId, target: string): boolean {
@@ -223,19 +227,54 @@ export const resolveEditorLaunch = Effect.fnUntraced(function* (
   return { command: fileManagerCommandForPlatform(platform), args: [input.cwd] };
 });
 
-export const launchDetached = (launch: EditorLaunch) =>
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+function shouldUseLinuxShellLauncher(launch: EditorLaunch, platform: NodeJS.Platform): boolean {
+  return platform === "linux" && ["cursor", "code", "zed"].includes(launch.command);
+}
+
+function resolveDetachedSpawn(
+  launch: EditorLaunch,
+  platform: NodeJS.Platform,
+): {
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+  readonly shell: boolean;
+} {
+  if (shouldUseLinuxShellLauncher(launch, platform)) {
+    const shellCommand = [launch.command, ...launch.args].map(shellQuote).join(" ");
+    return {
+      command: "/bin/sh",
+      args: ["-lc", shellCommand],
+      shell: false,
+    };
+  }
+
+  return {
+    command: launch.command,
+    args: launch.args,
+    shell: platform === "win32",
+  };
+}
+
+export const launchDetached = (launch: EditorLaunch, options: LaunchDetachedOptions = {}) =>
   Effect.gen(function* () {
+    const platform = options.platform ?? process.platform;
     if (!isCommandAvailable(launch.command)) {
       return yield* new OpenError({ message: `Editor command not found: ${launch.command}` });
     }
 
+    const detachedSpawn = resolveDetachedSpawn(launch, platform);
+
     yield* Effect.callback<void, OpenError>((resume) => {
       let child;
       try {
-        child = spawn(launch.command, [...launch.args], {
+        child = spawn(detachedSpawn.command, [...detachedSpawn.args], {
           detached: true,
           stdio: "ignore",
-          shell: process.platform === "win32",
+          shell: detachedSpawn.shell,
         });
       } catch (error) {
         return resume(

@@ -14,6 +14,7 @@ export const OpencodeModelOptions = Schema.Struct({
   providerId: Schema.optional(Schema.String),
   modelId: Schema.optional(Schema.String),
   agent: Schema.optional(Schema.String),
+  reasoningEffort: Schema.optional(Schema.Literals(CODEX_REASONING_EFFORT_OPTIONS)),
 });
 export type OpencodeModelOptions = typeof OpencodeModelOptions.Type;
 
@@ -61,7 +62,7 @@ export const MODEL_SLUG_ALIASES_BY_PROVIDER = {
 
 export const REASONING_EFFORT_OPTIONS_BY_PROVIDER = {
   codex: CODEX_REASONING_EFFORT_OPTIONS,
-  opencode: [],
+  opencode: CODEX_REASONING_EFFORT_OPTIONS,
 } as const satisfies Record<ProviderKind, readonly CodexReasoningEffort[]>;
 
 export const DEFAULT_REASONING_EFFORT_BY_PROVIDER = {

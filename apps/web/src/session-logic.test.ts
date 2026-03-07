@@ -484,6 +484,65 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.command).toBe("bun run lint");
   });
 
+  it("extracts nested OpenCode command input from tool state", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "opencode-command-tool",
+        kind: "tool.updated",
+        summary: "Run command",
+        payload: {
+          itemType: "command_execution",
+          data: {
+            item: {
+              state: {
+                input: {
+                  command: ["pnpm", "lint"],
+                },
+              },
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry?.command).toBe("pnpm lint");
+  });
+
+  it("extracts rich OpenCode tool call details", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "opencode-rich-tool",
+        kind: "tool.completed",
+        summary: "Web search complete",
+        payload: {
+          itemType: "web_search",
+          status: "completed",
+          data: {
+            item: {
+              tool: "search",
+              state: {
+                input: {
+                  query: "opencode variants",
+                  limit: 5,
+                },
+                output: "Found matching docs and examples",
+              },
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry?.toolCall).toEqual({
+      name: "search",
+      status: "completed",
+      itemType: "web_search",
+      input: "query: opencode variants  ·  limit: 5",
+    });
+  });
+
   it("extracts changed file paths for file-change tool activities", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -509,6 +568,95 @@ describe("deriveWorkLogEntries", () => {
       "apps/web/src/components/ChatView.tsx",
       "apps/web/src/session-logic.ts",
     ]);
+  });
+
+  it("does not surface read-only tool paths as changed files", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "glob-tool",
+        kind: "tool.updated",
+        summary: "Glob",
+        payload: {
+          itemType: "dynamic_tool_call",
+          data: {
+            item: {
+              tool: "glob",
+              state: {
+                input: {
+                  pattern: "**/*.png",
+                  path: "/tmp/project",
+                },
+              },
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry?.changedFiles).toBeUndefined();
+    expect(entry?.toolCall?.input).toBe("pattern: **/*.png  ·  path: /tmp/project");
+  });
+
+  it("renders reasoning deltas as thinking entries", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "reasoning-delta",
+        kind: "reasoning.delta",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          detail: "Tracing the OpenCode tool stream.",
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry?.tone).toBe("thinking");
+    expect(entry?.detail).toBe("Tracing the OpenCode tool stream.");
+  });
+
+  it("merges consecutive reasoning deltas into a single thinking entry", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "reasoning-1",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        turnId: "turn-1",
+        kind: "reasoning.delta",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          detail: "**Fix",
+        },
+      }),
+      makeActivity({
+        id: "reasoning-2",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        turnId: "turn-1",
+        kind: "reasoning.delta",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          detail: "ing",
+        },
+      }),
+      makeActivity({
+        id: "reasoning-3",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        turnId: "turn-1",
+        kind: "reasoning.delta",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          detail: " app icon issues",
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.detail).toBe("**Fixing app icon issues");
+    expect(entries[0]?.tone).toBe("thinking");
   });
 });
 

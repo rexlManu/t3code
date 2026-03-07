@@ -10,8 +10,12 @@ import {
   resolveAvailableEditors,
   resolveEditorLaunch,
 } from "./open";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { assertSuccess } from "@effect/vitest/utils";
+
+class WaitForMarkerError extends Schema.TaggedErrorClass<WaitForMarkerError>()("WaitForMarkerError", {
+  message: Schema.String,
+}) {}
 
 describe("resolveEditorLaunch", () => {
   it.effect("returns commands for command-based editors", () =>
@@ -135,6 +139,63 @@ describe("launchDetached", () => {
         args: [],
       }).pipe(Effect.result);
       assert.equal(result._tag, "Failure");
+    }),
+  );
+
+  it.effect("launches cursor via a POSIX shell wrapper on linux", () =>
+    Effect.gen(function* () {
+      if (process.platform !== "linux") {
+        return;
+      }
+
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "t3-open-cursor-linux-"));
+      const markerPath = path.join(dir, "spawned.txt");
+      const originalPath = process.env.PATH ?? "";
+
+      try {
+        const cursorPath = path.join(dir, "cursor");
+        fs.writeFileSync(cursorPath, `touch ${JSON.stringify(markerPath)}\n`, {
+          encoding: "utf8",
+          mode: 0o755,
+        });
+
+        process.env.PATH = `${dir}:${originalPath}`;
+
+        const result = yield* launchDetached(
+          {
+            command: "cursor",
+            args: ["/tmp/workspace"],
+          },
+          { platform: "linux" },
+        ).pipe(Effect.result);
+        assertSuccess(result, undefined);
+
+        yield* Effect.tryPromise({
+          try: async () => {
+            for (let attempt = 0; attempt < 50; attempt += 1) {
+              if (fs.existsSync(markerPath)) {
+                return;
+              }
+
+              await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+
+            throw new Error("expected cursor shell wrapper to create a marker file");
+          },
+          catch: (cause) =>
+            new WaitForMarkerError({
+              message:
+                cause instanceof Error
+                  ? cause.message
+                  : `failed waiting for cursor marker: ${String(cause)}`,
+            }),
+        });
+
+        assert.equal(fs.existsSync(markerPath), true);
+      } finally {
+        process.env.PATH = originalPath;
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
     }),
   );
 });

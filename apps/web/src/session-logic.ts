@@ -36,6 +36,13 @@ export interface WorkLogEntry {
   detail?: string;
   command?: string;
   changedFiles?: ReadonlyArray<string>;
+  toolCall?: {
+    name: string;
+    status?: string;
+    itemType?: string;
+    input?: string;
+    output?: string;
+  };
   tone: "thinking" | "tool" | "info" | "error";
 }
 
@@ -413,10 +420,10 @@ export function deriveWorkLogEntries(
   provider?: ProviderKind | null,
 ): WorkLogEntry[] {
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
-  return ordered
+  const visibleActivities = ordered
     .filter((activity) => (latestTurnId ? activity.turnId === latestTurnId : true))
     .filter((activity) => !shouldHideWorkLogActivity(activity, provider))
-    .map((activity) => {
+  return mergeReasoningActivities(visibleActivities).map((activity) => {
       const payload =
         activity.payload && typeof activity.payload === "object"
           ? (activity.payload as Record<string, unknown>)
@@ -427,7 +434,12 @@ export function deriveWorkLogEntries(
         id: activity.id,
         createdAt: activity.createdAt,
         label: activity.summary,
-        tone: activity.tone === "approval" ? "info" : activity.tone,
+        tone:
+          activity.kind === "reasoning.delta"
+            ? "thinking"
+            : activity.tone === "approval"
+              ? "info"
+              : activity.tone,
       };
       if (payload && typeof payload.detail === "string" && payload.detail.length > 0) {
         entry.detail = payload.detail;
@@ -435,8 +447,15 @@ export function deriveWorkLogEntries(
       if (command) {
         entry.command = command;
       }
-      if (changedFiles.length > 0) {
+      if (
+        changedFiles.length > 0 &&
+        (payload?.itemType === "file_change" || payload?.itemType === "command_execution")
+      ) {
         entry.changedFiles = changedFiles;
+      }
+      const toolCall = extractToolCall(payload, command);
+      if (toolCall) {
+        entry.toolCall = toolCall;
       }
       return entry;
     });
@@ -466,6 +485,52 @@ function shouldHideWorkLogActivity(
     activity.kind === "approval.resolved" ||
     activity.kind === "user-input.resolved"
   );
+}
+
+function mergeReasoningActivities(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): OrchestrationThreadActivity[] {
+  const merged: OrchestrationThreadActivity[] = [];
+
+  for (const activity of activities) {
+    const previous = merged.at(-1);
+    if (
+      previous &&
+      previous.kind === "reasoning.delta" &&
+      activity.kind === "reasoning.delta" &&
+      previous.turnId === activity.turnId &&
+      previous.summary === activity.summary
+    ) {
+      const previousPayload =
+        previous.payload && typeof previous.payload === "object"
+          ? ({ ...(previous.payload as Record<string, unknown>) } as Record<string, unknown>)
+          : {};
+      const nextPayload =
+        activity.payload && typeof activity.payload === "object"
+          ? (activity.payload as Record<string, unknown>)
+          : null;
+      const previousDetail = typeof previousPayload.detail === "string" ? previousPayload.detail : "";
+      const nextDetail = typeof nextPayload?.detail === "string" ? nextPayload.detail : "";
+      previousPayload.detail = mergeReasoningDetail(previousDetail, nextDetail);
+      merged[merged.length - 1] = {
+        ...previous,
+        payload: previousPayload,
+      };
+      continue;
+    }
+
+    merged.push(activity);
+  }
+
+  return merged;
+}
+
+function mergeReasoningDetail(current: string, next: string, limit = 1_600): string {
+  const merged = `${current}${next}`;
+  if (merged.length <= limit) {
+    return merged;
+  }
+  return `${merged.slice(0, limit - 3)}...`;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -499,13 +564,133 @@ function extractToolCommand(payload: Record<string, unknown> | null): string | n
   const item = asRecord(data?.item);
   const itemResult = asRecord(item?.result);
   const itemInput = asRecord(item?.input);
+  const itemState = asRecord(item?.state);
+  const itemStateInput = asRecord(itemState?.input);
   const candidates = [
     normalizeCommandValue(item?.command),
     normalizeCommandValue(itemInput?.command),
+    normalizeCommandValue(itemInput?.cmd),
+    normalizeCommandValue(itemInput?.argv),
+    normalizeCommandValue(itemStateInput?.command),
+    normalizeCommandValue(itemStateInput?.cmd),
+    normalizeCommandValue(itemStateInput?.argv),
+    normalizeCommandValue(itemState?.raw),
     normalizeCommandValue(itemResult?.command),
     normalizeCommandValue(data?.command),
   ];
   return candidates.find((candidate) => candidate !== null) ?? null;
+}
+
+function truncatePreview(value: string, maxChars = 800, maxLines = 10): string | null {
+  const normalized = value.replace(/\r\n/g, "\n").trim();
+  if (normalized.length === 0) {
+    return null;
+  }
+  const lines = normalized.split("\n");
+  const lineLimited =
+    lines.length > maxLines ? `${lines.slice(0, maxLines).join("\n")}\n...` : normalized;
+  if (lineLimited.length <= maxChars) {
+    return lineLimited;
+  }
+  return `${lineLimited.slice(0, maxChars - 3).trimEnd()}...`;
+}
+
+function stringifyPreview(value: unknown): string | null {
+  if (typeof value === "string") {
+    return truncatePreview(value);
+  }
+  if (value === null || value === undefined) {
+    return null;
+  }
+  try {
+    const serialized = JSON.stringify(value, null, 2);
+    return typeof serialized === "string" ? truncatePreview(serialized) : null;
+  } catch {
+    return null;
+  }
+}
+
+function summarizeScalarValue(value: unknown): string | null {
+  const direct = asTrimmedString(value);
+  if (direct) {
+    return direct;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const parts = value
+    .map((entry) => summarizeScalarValue(entry))
+    .filter((entry): entry is string => entry !== null);
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
+function summarizeToolInput(
+  input: Record<string, unknown> | null,
+  command: string | null,
+): string | null {
+  if (!input) {
+    return null;
+  }
+  const entries = Object.entries(input)
+    .filter(([key]) => key !== "command" && key !== "cmd" && key !== "argv")
+    .map(([key, value]) => {
+      const summary = summarizeScalarValue(value);
+      return summary ? `${key}: ${summary}` : null;
+    })
+    .filter((entry): entry is string => entry !== null)
+    .slice(0, 4);
+  if (entries.length === 0) {
+    return null;
+  }
+  const summary = entries.join("  ·  ");
+  if (command && summary === command) {
+    return null;
+  }
+  return summary;
+}
+
+function extractToolCall(
+  payload: Record<string, unknown> | null,
+  command: string | null,
+): WorkLogEntry["toolCall"] | undefined {
+  const itemType = asTrimmedString(payload?.itemType);
+  const status = asTrimmedString(payload?.status);
+  const data = asRecord(payload?.data);
+  const item = asRecord(data?.item);
+  const state = asRecord(item?.state);
+  const stateInput = asRecord(state?.input);
+  const metadata = asRecord(state?.metadata);
+  const name = asTrimmedString(item?.tool);
+
+  if (!name && !itemType) {
+    return undefined;
+  }
+
+  const toolCall: NonNullable<WorkLogEntry["toolCall"]> = {
+    name: name ?? "tool",
+    ...(status ? { status } : {}),
+    ...(itemType ? { itemType } : {}),
+  };
+
+  const inputPreview = summarizeToolInput(stateInput, command);
+  const outputPreview =
+    status === "failed"
+      ? stringifyPreview(state?.error) ??
+        stringifyPreview(state?.output) ??
+        stringifyPreview(metadata?.output)
+      : null;
+
+  if (inputPreview && inputPreview !== command) {
+    toolCall.input = inputPreview;
+  }
+  if (outputPreview) {
+    toolCall.output = outputPreview;
+  }
+
+  return toolCall;
 }
 
 function pushChangedFile(target: string[], seen: Set<string>, value: unknown) {

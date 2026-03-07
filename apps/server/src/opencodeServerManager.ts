@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 
 import {
   ApprovalRequestId,
+  type CanonicalItemType,
   EventId,
   RuntimeItemId,
   RuntimeRequestId,
@@ -106,6 +107,192 @@ function asString(value: unknown): string | undefined {
 
 function asArray(value: unknown): ReadonlyArray<unknown> | undefined {
   return Array.isArray(value) ? value : undefined;
+}
+
+function normalizeWhitespace(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function truncateText(value: string, limit = 220): string {
+  const normalized = normalizeWhitespace(value);
+  if (normalized.length <= limit) {
+    return normalized;
+  }
+  return `${normalized.slice(0, limit - 3)}...`;
+}
+
+function normalizeCommandValue(value: unknown): string | undefined {
+  const direct = asString(value);
+  if (direct) {
+    return normalizeWhitespace(direct);
+  }
+  const values = asArray(value);
+  if (!values) {
+    return undefined;
+  }
+  const parts = values
+    .map((entry) => asString(entry))
+    .filter((entry): entry is string => Boolean(entry))
+    .map((entry) => normalizeWhitespace(entry))
+    .filter((entry) => entry.length > 0);
+  return parts.length > 0 ? parts.join(" ") : undefined;
+}
+
+function collectFilePaths(value: unknown, target: Set<string>, depth = 0): void {
+  if (depth > 5) {
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      if (typeof entry === "string") {
+        const normalized = normalizeWhitespace(entry);
+        if (normalized.length > 0) {
+          target.add(normalized);
+        }
+        continue;
+      }
+      collectFilePaths(entry, target, depth + 1);
+    }
+    return;
+  }
+  const record = asRecord(value);
+  if (!record) {
+    return;
+  }
+
+  const directCandidates = [
+    record.path,
+    record.file,
+    record.filePath,
+    record.relativePath,
+    record.filename,
+    record.newPath,
+    record.oldPath,
+  ];
+  for (const candidate of directCandidates) {
+    const normalized = asString(candidate);
+    if (normalized) {
+      target.add(normalizeWhitespace(normalized));
+    }
+  }
+
+  const nestedCandidates = [
+    record.files,
+    record.attachments,
+    record.changes,
+    record.changedFiles,
+    record.input,
+    record.state,
+    record.item,
+    record.source,
+    record.metadata,
+  ];
+  for (const nestedValue of nestedCandidates) {
+    collectFilePaths(nestedValue, target, depth + 1);
+  }
+}
+
+function normalizeChangedFiles(value: unknown): ReadonlyArray<{ path: string }> {
+  const paths = new Set<string>();
+  collectFilePaths(value, paths);
+  return [...paths].toSorted((left, right) => left.localeCompare(right)).map((path) => ({ path }));
+}
+
+function inferToolItemType(
+  toolName: string,
+  input: Record<string, unknown> | undefined,
+  changedFiles: ReadonlyArray<{ path: string }>,
+): CanonicalItemType {
+  const normalizedTool = toolName.toLowerCase();
+  if (
+    normalizedTool === "glob" ||
+    normalizedTool === "grep" ||
+    normalizedTool === "read" ||
+    normalizedTool === "list" ||
+    normalizedTool === "ls" ||
+    normalizedTool === "cat" ||
+    normalizedTool.includes("read") ||
+    normalizedTool.includes("glob") ||
+    normalizedTool.includes("grep") ||
+    normalizedTool.includes("list")
+  ) {
+    return "dynamic_tool_call";
+  }
+  if (
+    normalizedTool === "bash" ||
+    normalizedTool.includes("command") ||
+    normalizeCommandValue(input?.command) !== undefined ||
+    normalizeCommandValue(input?.cmd) !== undefined
+  ) {
+    return "command_execution";
+  }
+  if (
+    normalizedTool === "edit" ||
+    normalizedTool === "write" ||
+    normalizedTool === "patch" ||
+    normalizedTool === "apply_patch" ||
+    normalizedTool === "multi_edit" ||
+    normalizedTool === "create" ||
+    normalizedTool === "delete" ||
+    normalizedTool === "rename" ||
+    normalizedTool.includes("edit")
+  ) {
+    return "file_change";
+  }
+  if (changedFiles.length > 0) {
+    return "file_change";
+  }
+  if (normalizedTool.includes("agent") || normalizedTool.includes("subtask")) {
+    return "collab_agent_tool_call";
+  }
+  if (normalizedTool.includes("search") || normalizedTool.includes("fetch")) {
+    return "web_search";
+  }
+  if (normalizedTool.includes("image")) {
+    return "image_view";
+  }
+  return "dynamic_tool_call";
+}
+
+function titleForToolItem(toolName: string, itemType: CanonicalItemType): string {
+  switch (itemType) {
+    case "command_execution":
+      return "Run command";
+    case "file_change":
+      return "Edit file";
+    case "collab_agent_tool_call":
+      return "Run agent";
+    case "web_search":
+      return "Web search";
+    case "image_view":
+      return "Image view";
+    default:
+      return `${toolName.charAt(0).toUpperCase()}${toolName.slice(1)}`;
+  }
+}
+
+function detailForToolItem(input: {
+  readonly state: Record<string, unknown> | undefined;
+  readonly changedFiles: ReadonlyArray<{ path: string }>;
+}): string | undefined {
+  const stateInput = asRecord(input.state?.input);
+  const candidates = [
+    normalizeCommandValue(stateInput?.command),
+    normalizeCommandValue(stateInput?.cmd),
+    normalizeCommandValue(stateInput?.argv),
+    asString(stateInput?.filePath),
+    asString(stateInput?.path),
+    input.changedFiles[0]?.path,
+    asString(input.state?.title),
+    asString(asRecord(input.state?.metadata)?.title),
+    asString(input.state?.error),
+  ];
+  for (const candidate of candidates) {
+    if (candidate) {
+      return truncateText(candidate);
+    }
+  }
+  return undefined;
 }
 
 function eventId(prefix: string): EventId {
@@ -357,6 +544,7 @@ export class OpenCodeServerManager extends EventEmitter<OpenCodeManagerEvents> {
     const agent =
       input.modelOptions?.opencode?.agent ??
       (input.interactionMode === "plan" ? "plan" : undefined);
+    const variant = input.modelOptions?.opencode?.reasoningEffort;
     const parsedModel = parseOpencodeModel(input.model);
     const providerId = input.modelOptions?.opencode?.providerId ?? parsedModel?.providerId;
     const modelId = input.modelOptions?.opencode?.modelId ?? parsedModel?.modelId ?? input.model;
@@ -408,6 +596,7 @@ export class OpenCodeServerManager extends EventEmitter<OpenCodeManagerEvents> {
               }
             : {}),
           ...(agent ? { agent } : {}),
+          ...(variant ? { variant } : {}),
           parts: [textPart(input.input ?? "")],
         }),
       );
@@ -1166,6 +1355,40 @@ export class OpenCodeServerManager extends EventEmitter<OpenCodeManagerEvents> {
     });
   }
 
+  private emitOpenCodeItemLifecycle(input: {
+    readonly context: OpenCodeSessionContext;
+    readonly lifecycle: "item.started" | "item.updated" | "item.completed";
+    readonly itemId: string;
+    readonly itemType: CanonicalItemType;
+    readonly status?: "inProgress" | "completed" | "failed" | undefined;
+    readonly title?: string | undefined;
+    readonly detail?: string | undefined;
+    readonly data?: Record<string, unknown> | undefined;
+    readonly rawEvent: OpencodeEvent;
+  }): void {
+    this.emitRuntimeEvent({
+      type: input.lifecycle,
+      eventId: eventId(`opencode-${input.lifecycle.replace(".", "-")}`),
+      provider: PROVIDER,
+      threadId: input.context.threadId,
+      createdAt: nowIso(),
+      ...(input.context.activeTurnId ? { turnId: input.context.activeTurnId } : {}),
+      itemId: RuntimeItemId.makeUnsafe(input.itemId),
+      payload: {
+        itemType: input.itemType,
+        ...(input.status ? { status: input.status } : {}),
+        ...(input.title ? { title: input.title } : {}),
+        ...(input.detail ? { detail: input.detail } : {}),
+        ...(input.data ? { data: input.data } : {}),
+      },
+      raw: {
+        source: "opencode.server.event",
+        messageType: "message.part.updated",
+        payload: input.rawEvent,
+      },
+    });
+  }
+
   private handleMessagePartUpdatedEvent(
     context: OpenCodeSessionContext,
     event: OpencodeEvent,
@@ -1192,8 +1415,63 @@ export class OpenCodeServerManager extends EventEmitter<OpenCodeManagerEvents> {
     if (partType === "tool") {
       const state = asRecord(part?.state);
       const toolName = asString(part?.tool) ?? "tool";
+      const stateInput = asRecord(state?.input);
+      const changedFiles = normalizeChangedFiles({
+        ...(stateInput ? { input: stateInput } : {}),
+        ...(state ? { state } : {}),
+      });
+      const itemType = inferToolItemType(toolName, stateInput, changedFiles);
+      const title =
+        asString(state?.title) ?? asString(asRecord(state?.metadata)?.title) ?? titleForToolItem(toolName, itemType);
+      const detail = detailForToolItem({ state, changedFiles });
       const summary = asString(asRecord(state?.metadata)?.title) ?? asString(state?.title);
       const status = asString(state?.status);
+      const data: Record<string, unknown> = {
+        item: part,
+        ...(changedFiles.length > 0 ? { changedFiles } : {}),
+      };
+      const command = normalizeCommandValue(stateInput?.command) ?? normalizeCommandValue(stateInput?.cmd);
+      if (command) {
+        data.command = command;
+      }
+
+      if (status === "pending") {
+        this.emitOpenCodeItemLifecycle({
+          context,
+          lifecycle: "item.started",
+          itemId: partId,
+          itemType,
+          title,
+          detail,
+          data,
+          rawEvent: event,
+        });
+      } else if (status === "running") {
+        this.emitOpenCodeItemLifecycle({
+          context,
+          lifecycle: "item.updated",
+          itemId: partId,
+          itemType,
+          status: "inProgress",
+          title,
+          detail,
+          data,
+          rawEvent: event,
+        });
+      } else if (status === "completed" || status === "error") {
+        this.emitOpenCodeItemLifecycle({
+          context,
+          lifecycle: "item.completed",
+          itemId: partId,
+          itemType,
+          status: status === "completed" ? "completed" : "failed",
+          title,
+          detail,
+          data,
+          rawEvent: event,
+        });
+      }
+
       if ((status === "completed" || status === "error") && summary) {
         this.emitRuntimeEvent({
           type: "tool.summary",
@@ -1214,6 +1492,26 @@ export class OpenCodeServerManager extends EventEmitter<OpenCodeManagerEvents> {
           },
         });
       }
+      return;
+    }
+
+    if (partType === "patch") {
+      const changedFiles = normalizeChangedFiles(asArray(part?.files) ?? []);
+      this.emitOpenCodeItemLifecycle({
+        context,
+        lifecycle: "item.completed",
+        itemId: partId,
+        itemType: "file_change",
+        status: "completed",
+        title: "Patch applied",
+        detail:
+          changedFiles.length > 0 ? truncateText(changedFiles.map((entry) => entry.path).join(", ")) : undefined,
+        data: {
+          item: part,
+          ...(changedFiles.length > 0 ? { changedFiles } : {}),
+        },
+        rawEvent: event,
+      });
     }
   }
 

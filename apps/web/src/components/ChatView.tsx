@@ -295,6 +295,42 @@ function workToneClass(tone: "thinking" | "tool" | "info" | "error"): string {
   return "text-muted-foreground/40";
 }
 
+function formatWorkToolStatus(status: string | undefined): string | null {
+  switch (status) {
+    case "inProgress":
+      return "Running";
+    case "completed":
+      return "Completed";
+    case "failed":
+      return "Failed";
+    case "declined":
+      return "Declined";
+    default:
+      return null;
+  }
+}
+
+function formatWorkToolType(itemType: string | undefined): string | null {
+  switch (itemType) {
+    case "command_execution":
+      return "Command";
+    case "file_change":
+      return "File change";
+    case "mcp_tool_call":
+      return "MCP";
+    case "dynamic_tool_call":
+      return "Tool";
+    case "collab_agent_tool_call":
+      return "Agent";
+    case "web_search":
+      return "Search";
+    case "image_view":
+      return "Image";
+    default:
+      return null;
+  }
+}
+
 function normalizePlanMarkdownForExport(planMarkdown: string): string {
   return `${planMarkdown.trimEnd()}\n`;
 }
@@ -854,14 +890,22 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const selectedCodexFastModeEnabled =
     selectedProvider === "codex" ? composerDraft.codexFastMode : false;
   const selectedModelOptionsForDispatch = useMemo(() => {
-    if (selectedProvider !== "codex") {
-      return undefined;
+    if (selectedProvider === "codex") {
+      const codexOptions = {
+        ...(supportsReasoningEffort && selectedEffort ? { reasoningEffort: selectedEffort } : {}),
+        ...(selectedCodexFastModeEnabled ? { fastMode: true } : {}),
+      };
+      return Object.keys(codexOptions).length > 0 ? { codex: codexOptions } : undefined;
     }
-    const codexOptions = {
-      ...(supportsReasoningEffort && selectedEffort ? { reasoningEffort: selectedEffort } : {}),
-      ...(selectedCodexFastModeEnabled ? { fastMode: true } : {}),
-    };
-    return Object.keys(codexOptions).length > 0 ? { codex: codexOptions } : undefined;
+
+    if (selectedProvider === "opencode") {
+      if (!supportsReasoningEffort || !selectedEffort) {
+        return undefined;
+      }
+      return { opencode: { reasoningEffort: selectedEffort } };
+    }
+
+    return undefined;
   }, [selectedCodexFastModeEnabled, selectedEffort, selectedProvider, supportsReasoningEffort]);
   const selectedModelForPicker = selectedModel;
   const selectedModelForPickerWithCustomFallback = useMemo(() => {
@@ -3126,7 +3170,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     ],
   );
   const onEffortSelect = useCallback(
-    (effort: CodexReasoningEffort) => {
+    (effort: CodexReasoningEffort | null) => {
       setComposerDraftEffort(threadId, effort);
       scheduleComposerFocus();
     },
@@ -3684,12 +3728,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     onProviderModelChange={onProviderModelSelect}
                   />
 
-                  {selectedProvider === "codex" && selectedEffort != null ? (
+                  {supportsReasoningEffort ? (
                     <>
                       <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
-                      <CodexTraitsPicker
+                      <ModelTraitsPicker
                         effort={selectedEffort}
+                        defaultEffort={getDefaultReasoningEffort(selectedProvider)}
                         fastModeEnabled={selectedCodexFastModeEnabled}
+                        showFastMode={selectedProvider === "codex"}
+                        allowAutomaticEffort={selectedProvider === "opencode"}
                         options={reasoningOptions}
                         onEffortChange={onEffortSelect}
                         onFastModeChange={onCodexFastModeChange}
@@ -5052,38 +5099,104 @@ const MessagesTimeline = memo(function MessagesTimeline({
                       <p className={`text-[11px] leading-relaxed ${workToneClass(workEntry.tone)}`}>
                         {workEntry.label}
                       </p>
-                      {workEntry.command && (
-                        <pre className="mt-1 overflow-x-auto rounded-md border border-border/70 bg-background/80 px-2 py-1 font-mono text-[11px] leading-relaxed text-foreground/80">
-                          {workEntry.command}
-                        </pre>
-                      )}
-                      {workEntry.changedFiles && workEntry.changedFiles.length > 0 && (
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {workEntry.changedFiles.slice(0, 6).map((filePath) => (
-                            <span
-                              key={`${workEntry.id}:${filePath}`}
-                              className="rounded-md border border-border/70 bg-background/65 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/85"
-                              title={filePath}
+                      {workEntry.toolCall ? (
+                        <div className="mt-1 rounded-md border border-border/70 bg-background/75 px-2 py-2">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="rounded-md border border-border/60 bg-background/80 px-1.5 py-0.5 font-mono text-[10px] text-foreground/85">
+                              {workEntry.toolCall.name}
+                            </span>
+                            {formatWorkToolType(workEntry.toolCall.itemType) ? (
+                              <span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground/60">
+                                {formatWorkToolType(workEntry.toolCall.itemType)}
+                              </span>
+                            ) : null}
+                            {formatWorkToolStatus(workEntry.toolCall.status) ? (
+                              <span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground/60">
+                                {formatWorkToolStatus(workEntry.toolCall.status)}
+                              </span>
+                            ) : null}
+                          </div>
+                          {workEntry.command ? (
+                            <pre className="mt-2 overflow-x-auto rounded-md border border-border/70 bg-background/85 px-2 py-1 font-mono text-[11px] leading-relaxed text-foreground/80">
+                              {workEntry.command}
+                            </pre>
+                          ) : null}
+                          {workEntry.toolCall.input ? (
+                            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground/75">
+                              {workEntry.toolCall.input}
+                            </p>
+                          ) : null}
+                          {workEntry.changedFiles && workEntry.changedFiles.length > 0 ? (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {workEntry.changedFiles.slice(0, 6).map((filePath) => (
+                                <span
+                                  key={`${workEntry.id}:${filePath}`}
+                                  className="rounded-md border border-border/70 bg-background/65 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/85"
+                                  title={filePath}
+                                >
+                                  {filePath}
+                                </span>
+                              ))}
+                              {workEntry.changedFiles.length > 6 ? (
+                                <span className="px-1 text-[10px] text-muted-foreground/65">
+                                  +{workEntry.changedFiles.length - 6} more
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : null}
+                          {workEntry.toolCall.output ? (
+                            <pre className="mt-2 overflow-x-auto rounded-md border border-border/60 bg-background/70 px-2 py-1 font-mono text-[11px] leading-relaxed text-muted-foreground/85">
+                              {workEntry.toolCall.output}
+                            </pre>
+                          ) : null}
+                          {workEntry.detail &&
+                          (!workEntry.command || workEntry.detail !== workEntry.command) ? (
+                            <p
+                              className={`mt-2 text-[11px] leading-relaxed text-muted-foreground/75 ${
+                                workEntry.tone === "thinking" ? "whitespace-pre-wrap" : ""
+                              }`}
+                              title={workEntry.detail}
                             >
-                              {filePath}
-                            </span>
-                          ))}
-                          {workEntry.changedFiles.length > 6 && (
-                            <span className="px-1 text-[10px] text-muted-foreground/65">
-                              +{workEntry.changedFiles.length - 6} more
-                            </span>
-                          )}
+                              {workEntry.detail}
+                            </p>
+                          ) : null}
                         </div>
+                      ) : (
+                        <>
+                          {workEntry.command && (
+                            <pre className="mt-1 overflow-x-auto rounded-md border border-border/70 bg-background/80 px-2 py-1 font-mono text-[11px] leading-relaxed text-foreground/80">
+                              {workEntry.command}
+                            </pre>
+                          )}
+                          {workEntry.changedFiles && workEntry.changedFiles.length > 0 && (
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {workEntry.changedFiles.slice(0, 6).map((filePath) => (
+                                <span
+                                  key={`${workEntry.id}:${filePath}`}
+                                  className="rounded-md border border-border/70 bg-background/65 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/85"
+                                  title={filePath}
+                                >
+                                  {filePath}
+                                </span>
+                              ))}
+                              {workEntry.changedFiles.length > 6 && (
+                                <span className="px-1 text-[10px] text-muted-foreground/65">
+                                  +{workEntry.changedFiles.length - 6} more
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {workEntry.detail &&
+                            (!workEntry.command || workEntry.detail !== workEntry.command) && (
+                              <p
+                                className="mt-1 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-muted-foreground/75"
+                                title={workEntry.detail}
+                              >
+                                {workEntry.detail}
+                              </p>
+                            )}
+                        </>
                       )}
-                      {workEntry.detail &&
-                        (!workEntry.command || workEntry.detail !== workEntry.command) && (
-                          <p
-                            className="mt-1 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-muted-foreground/75"
-                            title={workEntry.detail}
-                          >
-                            {workEntry.detail}
-                          </p>
-                        )}
                     </div>
                   </div>
                 ))}
@@ -5386,7 +5499,7 @@ function renderProviderModelMenuItems(props: {
   activeModel: ModelSlug;
   options: ReadonlyArray<{ slug: string; name: string }>;
   serviceTierSetting: AppServiceTier;
-  disabled?: boolean;
+  disabled: boolean | undefined;
   isDisabledByProviderLock: boolean;
   onClose: () => void;
   onProviderModelChange: (provider: ProviderKind, model: ModelSlug) => void;
@@ -5413,6 +5526,7 @@ function renderProviderModelMenuItems(props: {
           <MenuRadioItem
             key={`${props.provider}:${modelOption.slug}`}
             value={modelOption.slug}
+            compact
             onClick={props.onClose}
           >
             {props.provider === "codex" &&
@@ -5571,48 +5685,49 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                             </span>
                           </MenuSubTrigger>
                           <MenuSubPopup className="min-w-64 [--available-height:min(24rem,70vh)]">
-                            <MenuGroupLabel>Favorite models</MenuGroupLabel>
-                            {renderProviderModelMenuItems({
-                              provider: option.value,
-                              activeProvider: props.provider,
-                              activeModel: props.model,
-                              options: props.opencodeModelCatalog.favorites,
-                              serviceTierSetting: props.serviceTierSetting,
-                              disabled: props.disabled,
-                              isDisabledByProviderLock,
-                              onClose: () => setIsMenuOpen(false),
-                              onProviderModelChange: props.onProviderModelChange,
-                            })}
+                            <MenuGroup>
+                              <MenuGroupLabel>Favorite models</MenuGroupLabel>
+                              {renderProviderModelMenuItems({
+                                provider: option.value,
+                                activeProvider: props.provider,
+                                activeModel: props.model,
+                                options: props.opencodeModelCatalog.favorites,
+                                serviceTierSetting: props.serviceTierSetting,
+                                disabled: props.disabled,
+                                isDisabledByProviderLock,
+                                onClose: () => setIsMenuOpen(false),
+                                onProviderModelChange: props.onProviderModelChange,
+                              })}
+                            </MenuGroup>
                           </MenuSubPopup>
                         </MenuSub>
                         <MenuDivider />
                       </>
                     ) : null}
-                    <MenuGroupLabel>Providers</MenuGroupLabel>
-                    {props.opencodeModelCatalog.groups.map((group) => (
-                      <MenuSub key={group.id}>
-                        <MenuSubTrigger disabled={isDisabledByProviderLock}>
-                          <span>{group.name}</span>
-                          <span className="ml-auto pr-2 text-[11px] text-muted-foreground/75">
-                            {group.models.length}
-                          </span>
-                        </MenuSubTrigger>
-                        <MenuSubPopup className="min-w-64 [--available-height:min(24rem,70vh)]">
-                          <MenuGroupLabel>{group.name}</MenuGroupLabel>
-                          {renderProviderModelMenuItems({
-                            provider: option.value,
-                            activeProvider: props.provider,
-                            activeModel: props.model,
-                            options: group.models,
-                            serviceTierSetting: props.serviceTierSetting,
-                            disabled: props.disabled,
-                            isDisabledByProviderLock,
-                            onClose: () => setIsMenuOpen(false),
-                            onProviderModelChange: props.onProviderModelChange,
-                          })}
-                        </MenuSubPopup>
-                      </MenuSub>
-                    ))}
+                    <MenuGroup>
+                      {props.opencodeModelCatalog.groups.map((group) => (
+                        <MenuSub key={group.id}>
+                          <MenuSubTrigger disabled={isDisabledByProviderLock}>
+                            <span>{group.name}</span>
+                          </MenuSubTrigger>
+                          <MenuSubPopup className="min-w-64 [--available-height:min(24rem,70vh)]">
+                            <MenuGroup>
+                              {renderProviderModelMenuItems({
+                                provider: option.value,
+                                activeProvider: props.provider,
+                                activeModel: props.model,
+                                options: group.models,
+                                serviceTierSetting: props.serviceTierSetting,
+                                disabled: props.disabled,
+                                isDisabledByProviderLock,
+                                onClose: () => setIsMenuOpen(false),
+                                onProviderModelChange: props.onProviderModelChange,
+                              })}
+                            </MenuGroup>
+                          </MenuSubPopup>
+                        </MenuSub>
+                      ))}
+                    </MenuGroup>
                   </>
                 ) : (
                   renderProviderModelMenuItems({
@@ -5668,15 +5783,17 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   );
 });
 
-const CodexTraitsPicker = memo(function CodexTraitsPicker(props: {
-  effort: CodexReasoningEffort;
+const ModelTraitsPicker = memo(function ModelTraitsPicker(props: {
+  effort: CodexReasoningEffort | null;
+  defaultEffort: CodexReasoningEffort | null;
   fastModeEnabled: boolean;
+  showFastMode: boolean;
+  allowAutomaticEffort: boolean;
   options: ReadonlyArray<CodexReasoningEffort>;
-  onEffortChange: (effort: CodexReasoningEffort) => void;
+  onEffortChange: (effort: CodexReasoningEffort | null) => void;
   onFastModeChange: (enabled: boolean) => void;
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const defaultReasoningEffort = getDefaultReasoningEffort("codex");
   const reasoningLabelByOption: Record<CodexReasoningEffort, string> = {
     low: "Low",
     medium: "Medium",
@@ -5684,7 +5801,7 @@ const CodexTraitsPicker = memo(function CodexTraitsPicker(props: {
     xhigh: "Extra High",
   };
   const triggerLabel = [
-    reasoningLabelByOption[props.effort],
+    props.effort ? reasoningLabelByOption[props.effort] : "Reasoning",
     ...(props.fastModeEnabled ? ["Fast"] : []),
   ]
     .filter(Boolean)
@@ -5713,35 +5830,46 @@ const CodexTraitsPicker = memo(function CodexTraitsPicker(props: {
         <MenuGroup>
           <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Reasoning</div>
           <MenuRadioGroup
-            value={props.effort}
+            value={props.effort ?? "auto"}
             onValueChange={(value) => {
               if (!value) return;
+              if (value === "auto") {
+                props.onEffortChange(null);
+                return;
+              }
               const nextEffort = props.options.find((option) => option === value);
               if (!nextEffort) return;
               props.onEffortChange(nextEffort);
             }}
           >
+            {props.allowAutomaticEffort ? <MenuRadioItem value="auto">Auto</MenuRadioItem> : null}
             {props.options.map((effort) => (
               <MenuRadioItem key={effort} value={effort}>
                 {reasoningLabelByOption[effort]}
-                {effort === defaultReasoningEffort ? " (default)" : ""}
+                {effort === props.defaultEffort ? " (default)" : ""}
               </MenuRadioItem>
             ))}
           </MenuRadioGroup>
         </MenuGroup>
-        <MenuDivider />
-        <MenuGroup>
-          <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Fast Mode</div>
-          <MenuRadioGroup
-            value={props.fastModeEnabled ? "on" : "off"}
-            onValueChange={(value) => {
-              props.onFastModeChange(value === "on");
-            }}
-          >
-            <MenuRadioItem value="off">off</MenuRadioItem>
-            <MenuRadioItem value="on">on</MenuRadioItem>
-          </MenuRadioGroup>
-        </MenuGroup>
+        {props.showFastMode ? (
+          <>
+            <MenuDivider />
+            <MenuGroup>
+              <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">
+                Fast Mode
+              </div>
+              <MenuRadioGroup
+                value={props.fastModeEnabled ? "on" : "off"}
+                onValueChange={(value) => {
+                  props.onFastModeChange(value === "on");
+                }}
+              >
+                <MenuRadioItem value="off">off</MenuRadioItem>
+                <MenuRadioItem value="on">on</MenuRadioItem>
+              </MenuRadioGroup>
+            </MenuGroup>
+          </>
+        ) : null}
       </MenuPopup>
     </Menu>
   );
