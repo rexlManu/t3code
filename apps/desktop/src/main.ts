@@ -7,7 +7,11 @@ import * as Path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, shell } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
 import * as Effect from "effect/Effect";
-import type { DesktopUpdateActionResult, DesktopUpdateState } from "@t3tools/contracts";
+import type {
+  DesktopUpdateActionResult,
+  DesktopUpdateState,
+  DesktopWindowState,
+} from "@t3tools/contracts";
 import { autoUpdater } from "electron-updater";
 
 import type { ContextMenuItem } from "@t3tools/contracts";
@@ -43,6 +47,11 @@ const UPDATE_STATE_CHANNEL = "desktop:update-state";
 const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
+const WINDOW_STATE_CHANNEL = "desktop:window-state";
+const WINDOW_GET_STATE_CHANNEL = "desktop:window-get-state";
+const WINDOW_MINIMIZE_CHANNEL = "desktop:window-minimize";
+const WINDOW_TOGGLE_MAXIMIZE_CHANNEL = "desktop:window-toggle-maximize";
+const WINDOW_CLOSE_CHANNEL = "desktop:window-close";
 const STATE_DIR =
   process.env.T3CODE_STATE_DIR?.trim() || Path.join(OS.homedir(), ".t3", "userdata");
 const DESKTOP_SCHEME = "t3";
@@ -1092,6 +1101,44 @@ function registerIpcHandlers(): void {
       state: updateState,
     } satisfies DesktopUpdateActionResult;
   });
+
+  ipcMain.removeHandler(WINDOW_GET_STATE_CHANNEL);
+  ipcMain.handle(WINDOW_GET_STATE_CHANNEL, async (event) => {
+    const window = resolveSenderWindow(event.sender);
+    return window ? getWindowState(window) : null;
+  });
+
+  ipcMain.removeHandler(WINDOW_MINIMIZE_CHANNEL);
+  ipcMain.handle(WINDOW_MINIMIZE_CHANNEL, async (event) => {
+    const window = resolveSenderWindow(event.sender);
+    if (!window) {
+      return null;
+    }
+    window.minimize();
+    return getWindowState(window);
+  });
+
+  ipcMain.removeHandler(WINDOW_TOGGLE_MAXIMIZE_CHANNEL);
+  ipcMain.handle(WINDOW_TOGGLE_MAXIMIZE_CHANNEL, async (event) => {
+    const window = resolveSenderWindow(event.sender);
+    if (!window) {
+      return null;
+    }
+    if (window.isFullScreen()) {
+      window.setFullScreen(false);
+    } else if (window.isMaximized()) {
+      window.unmaximize();
+    } else {
+      window.maximize();
+    }
+    return getWindowState(window);
+  });
+
+  ipcMain.removeHandler(WINDOW_CLOSE_CHANNEL);
+  ipcMain.handle(WINDOW_CLOSE_CHANNEL, async (event) => {
+    const window = resolveSenderWindow(event.sender);
+    window?.close();
+  });
 }
 
 function getIconOption(): { icon: string } | Record<string, never> {
@@ -1099,6 +1146,25 @@ function getIconOption(): { icon: string } | Record<string, never> {
   const ext = process.platform === "win32" ? "ico" : "png";
   const iconPath = resolveIconPath(ext);
   return iconPath ? { icon: iconPath } : {};
+}
+
+function getWindowState(window: BrowserWindow): DesktopWindowState {
+  return {
+    isFocused: window.isFocused(),
+    isFullScreen: window.isFullScreen(),
+    isMaximized: window.isMaximized(),
+  };
+}
+
+function emitWindowState(window: BrowserWindow): void {
+  if (window.isDestroyed()) {
+    return;
+  }
+  window.webContents.send(WINDOW_STATE_CHANNEL, getWindowState(window));
+}
+
+function resolveSenderWindow(sender: Electron.WebContents): BrowserWindow | null {
+  return BrowserWindow.fromWebContents(sender);
 }
 
 function createWindow(): BrowserWindow {
@@ -1111,8 +1177,7 @@ function createWindow(): BrowserWindow {
     autoHideMenuBar: true,
     ...getIconOption(),
     title: APP_DISPLAY_NAME,
-    titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 16, y: 18 },
+    frame: false,
     webPreferences: {
       preload: Path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -1136,9 +1201,29 @@ function createWindow(): BrowserWindow {
   window.webContents.on("did-finish-load", () => {
     window.setTitle(APP_DISPLAY_NAME);
     emitUpdateState();
+    emitWindowState(window);
   });
   window.once("ready-to-show", () => {
     window.show();
+    emitWindowState(window);
+  });
+  window.on("maximize", () => {
+    emitWindowState(window);
+  });
+  window.on("unmaximize", () => {
+    emitWindowState(window);
+  });
+  window.on("enter-full-screen", () => {
+    emitWindowState(window);
+  });
+  window.on("leave-full-screen", () => {
+    emitWindowState(window);
+  });
+  window.on("focus", () => {
+    emitWindowState(window);
+  });
+  window.on("blur", () => {
+    emitWindowState(window);
   });
 
   if (isDevelopment) {

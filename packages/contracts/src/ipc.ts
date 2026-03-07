@@ -81,6 +81,12 @@ export interface DesktopUpdateActionResult {
   state: DesktopUpdateState;
 }
 
+export interface DesktopWindowState {
+  isFocused: boolean;
+  isFullScreen: boolean;
+  isMaximized: boolean;
+}
+
 export interface DesktopBridge {
   getWsUrl: () => string | null;
   pickFolder: () => Promise<string | null>;
@@ -95,6 +101,11 @@ export interface DesktopBridge {
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;
   installUpdate: () => Promise<DesktopUpdateActionResult>;
   onUpdateState: (listener: (state: DesktopUpdateState) => void) => () => void;
+  getWindowState: () => Promise<DesktopWindowState | null>;
+  minimizeWindow: () => Promise<DesktopWindowState | null>;
+  toggleMaximizeWindow: () => Promise<DesktopWindowState | null>;
+  closeWindow: () => Promise<void>;
+  onWindowState: (listener: (state: DesktopWindowState) => void) => () => void;
 }
 
 export interface NativeApi {
