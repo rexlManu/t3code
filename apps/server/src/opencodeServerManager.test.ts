@@ -222,6 +222,45 @@ describe("OpenCodeServerManager", () => {
     ]);
   });
 
+  it("keeps glob tool calls out of file-change classification", () => {
+    const manager = new OpenCodeServerManager();
+    const context = createContext();
+    const received: ProviderRuntimeEvent[] = [];
+    manager.on("event", (event) => {
+      received.push(event);
+    });
+
+    dispatchOpenCodeEvent(manager, context, {
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "part-tool-glob",
+          sessionID: "session-1",
+          messageID: "message-1",
+          type: "tool",
+          callID: "call-glob",
+          tool: "glob",
+          state: {
+            status: "running",
+            input: {
+              pattern: "**/*.png",
+              path: "/tmp/project",
+            },
+            time: { start: Date.now() },
+          },
+        },
+      },
+    });
+
+    const [event] = received;
+    expect(event?.type).toBe("item.updated");
+    if (!event || event.type !== "item.updated") {
+      return;
+    }
+    expect(event.payload.itemType).toBe("dynamic_tool_call");
+    expect(event.payload.title).toBe("Glob");
+  });
+
   it("forwards opencode reasoning effort as the prompt variant", async () => {
     const manager = new OpenCodeServerManager();
     const promptAsync = vi.fn(async () => undefined);

@@ -508,7 +508,7 @@ describe("deriveWorkLogEntries", () => {
       name: "search",
       status: "completed",
       itemType: "web_search",
-      input: '{\n  "query": "opencode variants",\n  "limit": 5\n}',
+      input: "query: opencode variants  ·  limit: 5",
       output: "Found matching docs and examples",
     });
   });
@@ -538,6 +538,34 @@ describe("deriveWorkLogEntries", () => {
       "apps/web/src/components/ChatView.tsx",
       "apps/web/src/session-logic.ts",
     ]);
+  });
+
+  it("does not surface read-only tool paths as changed files", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "glob-tool",
+        kind: "tool.updated",
+        summary: "Glob",
+        payload: {
+          itemType: "dynamic_tool_call",
+          data: {
+            item: {
+              tool: "glob",
+              state: {
+                input: {
+                  pattern: "**/*.png",
+                  path: "/tmp/project",
+                },
+              },
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry?.changedFiles).toBeUndefined();
+    expect(entry?.toolCall?.input).toBe("pattern: **/*.png  ·  path: /tmp/project");
   });
 
   it("renders reasoning deltas as thinking entries", () => {

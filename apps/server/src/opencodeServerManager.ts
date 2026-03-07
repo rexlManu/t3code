@@ -205,6 +205,20 @@ function inferToolItemType(
 ): CanonicalItemType {
   const normalizedTool = toolName.toLowerCase();
   if (
+    normalizedTool === "glob" ||
+    normalizedTool === "grep" ||
+    normalizedTool === "read" ||
+    normalizedTool === "list" ||
+    normalizedTool === "ls" ||
+    normalizedTool === "cat" ||
+    normalizedTool.includes("read") ||
+    normalizedTool.includes("glob") ||
+    normalizedTool.includes("grep") ||
+    normalizedTool.includes("list")
+  ) {
+    return "dynamic_tool_call";
+  }
+  if (
     normalizedTool === "bash" ||
     normalizedTool.includes("command") ||
     normalizeCommandValue(input?.command) !== undefined ||
@@ -213,12 +227,19 @@ function inferToolItemType(
     return "command_execution";
   }
   if (
-    changedFiles.length > 0 ||
     normalizedTool === "edit" ||
     normalizedTool === "write" ||
     normalizedTool === "patch" ||
+    normalizedTool === "apply_patch" ||
+    normalizedTool === "multi_edit" ||
+    normalizedTool === "create" ||
+    normalizedTool === "delete" ||
+    normalizedTool === "rename" ||
     normalizedTool.includes("edit")
   ) {
+    return "file_change";
+  }
+  if (changedFiles.length > 0) {
     return "file_change";
   }
   if (normalizedTool.includes("agent") || normalizedTool.includes("subtask")) {
