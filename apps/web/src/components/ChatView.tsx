@@ -5541,14 +5541,15 @@ function renderProviderModelMenuItems(props: {
           <MenuRadioItem
             key={`${props.provider}:${modelOption.slug}`}
             value={modelOption.slug}
-            compact
             onClick={props.onClose}
           >
-            {props.provider === "codex" &&
-            shouldShowFastTierIcon(modelOption.slug, props.serviceTierSetting) ? (
-              <ZapIcon className="size-3.5 shrink-0 text-amber-500" />
-            ) : null}
-            {modelOption.name}
+            <span className="flex min-w-0 items-center gap-2">
+              {props.provider === "codex" &&
+              shouldShowFastTierIcon(modelOption.slug, props.serviceTierSetting) ? (
+                <ZapIcon className="size-3.5 shrink-0 text-amber-500" />
+              ) : null}
+              <span className="truncate">{modelOption.name}</span>
+            </span>
           </MenuRadioItem>
         ))}
       </MenuRadioGroup>
