@@ -121,6 +121,7 @@ import {
   type TurnDiffTreeNode,
 } from "../lib/turnDiffTree";
 import BranchToolbar from "./BranchToolbar";
+import { DesktopTitleBar } from "./DesktopTitleBar";
 import GitActionsControl from "./GitActionsControl";
 import {
   isOpenFavoriteEditorShortcut,
@@ -3469,11 +3470,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
             </div>
           </header>
         )}
-        {isElectron && (
-          <div className="drag-region flex h-[52px] shrink-0 items-center border-b border-border px-5">
-            <span className="text-xs text-muted-foreground/50">No active thread</span>
-          </div>
-        )}
+        {isElectron ? (
+          <DesktopTitleBar
+            title="No active thread"
+            subtitle="Select a thread or create a new one to get started."
+          />
+        ) : null}
         <div className="flex flex-1 items-center justify-center">
           <div className="text-center">
             <p className="text-sm">Select a thread or create a new one to get started.</p>
@@ -3486,35 +3488,74 @@ export default function ChatView({ threadId }: ChatViewProps) {
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
       {/* Top bar */}
-      <header
-        className={cn(
-          "border-b border-border px-3 sm:px-5",
-          isElectron ? "drag-region flex h-[52px] items-center" : "py-2 sm:py-3",
-        )}
-      >
-        <ChatHeader
-          activeThreadId={activeThread.id}
-          activeThreadTitle={activeThread.title}
-          activeProjectName={activeProject?.name}
-          isGitRepo={isGitRepo}
-          openInCwd={activeThread.worktreePath ?? activeProject?.cwd ?? null}
-          activeProjectScripts={activeProject?.scripts}
-          preferredScriptId={
-            activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
+      {isElectron ? (
+        <DesktopTitleBar
+          title={activeThread.title}
+          subtitle={activeProject?.name ?? "Conversation"}
+          meta={
+            <>
+              {activeProject?.name ? (
+                <Badge variant="outline" className="max-w-28 shrink-0 truncate">
+                  {activeProject.name}
+                </Badge>
+              ) : null}
+              {activeProject?.name && !isGitRepo ? (
+                <Badge variant="outline" className="shrink-0 text-[10px] text-amber-700">
+                  No Git
+                </Badge>
+              ) : null}
+            </>
           }
-          keybindings={keybindings}
-          availableEditors={availableEditors}
-          diffToggleShortcutLabel={diffPanelShortcutLabel}
-          gitCwd={gitCwd}
-          diffOpen={diffOpen}
-          onRunProjectScript={(script) => {
-            void runProjectScript(script);
-          }}
-          onAddProjectScript={saveProjectScript}
-          onUpdateProjectScript={updateProjectScript}
-          onToggleDiff={onToggleDiff}
+          trailing={
+            <ChatHeaderActions
+              activeThreadId={activeThread.id}
+              activeProjectName={activeProject?.name}
+              isGitRepo={isGitRepo}
+              openInCwd={activeThread.worktreePath ?? activeProject?.cwd ?? null}
+              activeProjectScripts={activeProject?.scripts}
+              preferredScriptId={
+                activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
+              }
+              keybindings={keybindings}
+              availableEditors={availableEditors}
+              diffToggleShortcutLabel={diffPanelShortcutLabel}
+              gitCwd={gitCwd}
+              diffOpen={diffOpen}
+              onRunProjectScript={(script) => {
+                void runProjectScript(script);
+              }}
+              onAddProjectScript={saveProjectScript}
+              onUpdateProjectScript={updateProjectScript}
+              onToggleDiff={onToggleDiff}
+            />
+          }
         />
-      </header>
+      ) : (
+        <header className="border-b border-border px-3 py-2 sm:px-5 sm:py-3">
+          <ChatHeader
+            activeThreadId={activeThread.id}
+            activeThreadTitle={activeThread.title}
+            activeProjectName={activeProject?.name}
+            isGitRepo={isGitRepo}
+            openInCwd={activeThread.worktreePath ?? activeProject?.cwd ?? null}
+            activeProjectScripts={activeProject?.scripts}
+            preferredScriptId={
+              activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
+            }
+            keybindings={keybindings}
+            availableEditors={availableEditors}
+            diffToggleShortcutLabel={diffPanelShortcutLabel}
+            gitCwd={gitCwd}
+            diffOpen={diffOpen}
+            onRunProjectScript={(script) => {
+              void runProjectScript(script);
+            }}
+            onAddProjectScript={saveProjectScript}
+            onUpdateProjectScript={updateProjectScript}
+            onToggleDiff={onToggleDiff}
+          />
+        </header>
+      )}
 
       {/* Error banner */}
       <ProviderHealthBanner status={activeProviderStatus} />
@@ -4099,6 +4140,73 @@ interface ChatHeaderProps {
   onToggleDiff: () => void;
 }
 
+type ChatHeaderActionsProps = Omit<ChatHeaderProps, "activeThreadTitle">;
+
+const ChatHeaderActions = memo(function ChatHeaderActions({
+  activeThreadId,
+  activeProjectName,
+  openInCwd,
+  activeProjectScripts,
+  preferredScriptId,
+  keybindings,
+  availableEditors,
+  diffToggleShortcutLabel,
+  gitCwd,
+  diffOpen,
+  onRunProjectScript,
+  onAddProjectScript,
+  onUpdateProjectScript,
+  onToggleDiff,
+  isGitRepo,
+}: ChatHeaderActionsProps) {
+  return (
+    <div className="@container/header-actions flex min-w-0 items-center justify-end gap-2 @sm/header-actions:gap-3">
+      {activeProjectScripts && (
+        <ProjectScriptsControl
+          scripts={activeProjectScripts}
+          keybindings={keybindings}
+          preferredScriptId={preferredScriptId}
+          onRunScript={onRunProjectScript}
+          onAddScript={onAddProjectScript}
+          onUpdateScript={onUpdateProjectScript}
+        />
+      )}
+      {activeProjectName && (
+        <OpenInPicker
+          keybindings={keybindings}
+          availableEditors={availableEditors}
+          openInCwd={openInCwd}
+        />
+      )}
+      {activeProjectName && <GitActionsControl gitCwd={gitCwd} activeThreadId={activeThreadId} />}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Toggle
+              className="shrink-0"
+              pressed={diffOpen}
+              onPressedChange={onToggleDiff}
+              aria-label="Toggle diff panel"
+              variant="outline"
+              size="xs"
+              disabled={!isGitRepo}
+            >
+              <DiffIcon className="size-3" />
+            </Toggle>
+          }
+        />
+        <TooltipPopup side="bottom">
+          {!isGitRepo
+            ? "Diff panel is unavailable because this project is not a git repository."
+            : diffToggleShortcutLabel
+              ? `Toggle diff panel (${diffToggleShortcutLabel})`
+              : "Toggle diff panel"}
+        </TooltipPopup>
+      </Tooltip>
+    </div>
+  );
+});
+
 const ChatHeader = memo(function ChatHeader({
   activeThreadId,
   activeThreadTitle,
@@ -4138,50 +4246,23 @@ const ChatHeader = memo(function ChatHeader({
           </Badge>
         )}
       </div>
-      <div className="@container/header-actions flex min-w-0 flex-1 items-center justify-end gap-2 @sm/header-actions:gap-3">
-        {activeProjectScripts && (
-          <ProjectScriptsControl
-            scripts={activeProjectScripts}
-            keybindings={keybindings}
-            preferredScriptId={preferredScriptId}
-            onRunScript={onRunProjectScript}
-            onAddScript={onAddProjectScript}
-            onUpdateScript={onUpdateProjectScript}
-          />
-        )}
-        {activeProjectName && (
-          <OpenInPicker
-            keybindings={keybindings}
-            availableEditors={availableEditors}
-            openInCwd={openInCwd}
-          />
-        )}
-        {activeProjectName && <GitActionsControl gitCwd={gitCwd} activeThreadId={activeThreadId} />}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Toggle
-                className="shrink-0"
-                pressed={diffOpen}
-                onPressedChange={onToggleDiff}
-                aria-label="Toggle diff panel"
-                variant="outline"
-                size="xs"
-                disabled={!isGitRepo}
-              >
-                <DiffIcon className="size-3" />
-              </Toggle>
-            }
-          />
-          <TooltipPopup side="bottom">
-            {!isGitRepo
-              ? "Diff panel is unavailable because this project is not a git repository."
-              : diffToggleShortcutLabel
-                ? `Toggle diff panel (${diffToggleShortcutLabel})`
-                : "Toggle diff panel"}
-          </TooltipPopup>
-        </Tooltip>
-      </div>
+      <ChatHeaderActions
+        activeThreadId={activeThreadId}
+        activeProjectName={activeProjectName}
+        isGitRepo={isGitRepo}
+        openInCwd={openInCwd}
+        activeProjectScripts={activeProjectScripts}
+        preferredScriptId={preferredScriptId}
+        keybindings={keybindings}
+        availableEditors={availableEditors}
+        diffToggleShortcutLabel={diffToggleShortcutLabel}
+        gitCwd={gitCwd}
+        diffOpen={diffOpen}
+        onRunProjectScript={onRunProjectScript}
+        onAddProjectScript={onAddProjectScript}
+        onUpdateProjectScript={onUpdateProjectScript}
+        onToggleDiff={onToggleDiff}
+      />
     </div>
   );
 });
