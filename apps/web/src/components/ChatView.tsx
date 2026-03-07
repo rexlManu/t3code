@@ -899,8 +899,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = useMemo(
-    () => deriveWorkLogEntries(threadActivities, activeLatestTurn?.turnId ?? undefined),
-    [activeLatestTurn?.turnId, threadActivities],
+    () =>
+      deriveWorkLogEntries(
+        threadActivities,
+        activeLatestTurn?.turnId ?? undefined,
+        activeThread?.session?.provider ?? null,
+      ),
+    [activeLatestTurn?.turnId, activeThread?.session?.provider, threadActivities],
   );
   const latestTurnHasToolActivity = useMemo(
     () => hasToolActivityForTurn(threadActivities, activeLatestTurn?.turnId),
@@ -5073,7 +5078,7 @@ const MessagesTimeline = memo(function MessagesTimeline({
                       {workEntry.detail &&
                         (!workEntry.command || workEntry.detail !== workEntry.command) && (
                           <p
-                            className="mt-1 text-[11px] leading-relaxed text-muted-foreground/75"
+                            className="mt-1 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-muted-foreground/75"
                             title={workEntry.detail}
                           >
                             {workEntry.detail}

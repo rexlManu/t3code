@@ -373,6 +373,37 @@ describe("deriveWorkLogEntries", () => {
     expect(entries.map((entry) => entry.id)).toEqual(["task-progress"]);
   });
 
+  it("suppresses noisy OpenCode progress churn while keeping completed work", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "reasoning-progress",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "task.progress",
+        summary: "Thinking",
+        payload: {
+          detail:
+            "**Evaluating project needs** Ineedtoaanswerquestionabouttherepoandeditthe.gitignorefile",
+        },
+      }),
+      makeActivity({
+        id: "tool-update",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "tool.updated",
+        summary: "Run command",
+      }),
+      makeActivity({
+        id: "tool-complete",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "tool.completed",
+        summary: "Shows installed DDEV version complete",
+        tone: "tool",
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined, "opencode");
+    expect(entries.map((entry) => entry.id)).toEqual(["tool-complete"]);
+  });
+
   it("filters by turn id when provided", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({ id: "turn-1", turnId: "turn-1", summary: "Tool call", kind: "tool.started" }),
