@@ -419,12 +419,13 @@ export function deriveWorkLogEntries(
   latestTurnId: TurnId | undefined,
 ): WorkLogEntry[] {
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
-  return ordered
+  const visibleActivities = ordered
     .filter((activity) => (latestTurnId ? activity.turnId === latestTurnId : true))
     .filter((activity) => activity.kind !== "tool.started")
     .filter((activity) => activity.kind !== "task.started" && activity.kind !== "task.completed")
-    .filter((activity) => activity.summary !== "Checkpoint captured")
-    .map((activity) => {
+    .filter((activity) => activity.summary !== "Checkpoint captured");
+
+  return mergeReasoningActivities(visibleActivities).map((activity) => {
       const payload =
         activity.payload && typeof activity.payload === "object"
           ? (activity.payload as Record<string, unknown>)
@@ -457,6 +458,52 @@ export function deriveWorkLogEntries(
       }
       return entry;
     });
+}
+
+function mergeReasoningActivities(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): OrchestrationThreadActivity[] {
+  const merged: OrchestrationThreadActivity[] = [];
+
+  for (const activity of activities) {
+    const previous = merged.at(-1);
+    if (
+      previous &&
+      previous.kind === "reasoning.delta" &&
+      activity.kind === "reasoning.delta" &&
+      previous.turnId === activity.turnId &&
+      previous.summary === activity.summary
+    ) {
+      const previousPayload =
+        previous.payload && typeof previous.payload === "object"
+          ? ({ ...(previous.payload as Record<string, unknown>) } as Record<string, unknown>)
+          : {};
+      const nextPayload =
+        activity.payload && typeof activity.payload === "object"
+          ? (activity.payload as Record<string, unknown>)
+          : null;
+      const previousDetail = typeof previousPayload.detail === "string" ? previousPayload.detail : "";
+      const nextDetail = typeof nextPayload?.detail === "string" ? nextPayload.detail : "";
+      previousPayload.detail = mergeReasoningDetail(previousDetail, nextDetail);
+      merged[merged.length - 1] = {
+        ...previous,
+        payload: previousPayload,
+      };
+      continue;
+    }
+
+    merged.push(activity);
+  }
+
+  return merged;
+}
+
+function mergeReasoningDetail(current: string, next: string, limit = 1_600): string {
+  const merged = `${current}${next}`;
+  if (merged.length <= limit) {
+    return merged;
+  }
+  return `${merged.slice(0, limit - 3)}...`;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

@@ -557,6 +557,49 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.tone).toBe("thinking");
     expect(entry?.detail).toBe("Tracing the OpenCode tool stream.");
   });
+
+  it("merges consecutive reasoning deltas into a single thinking entry", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "reasoning-1",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        turnId: "turn-1",
+        kind: "reasoning.delta",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          detail: "**Fix",
+        },
+      }),
+      makeActivity({
+        id: "reasoning-2",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        turnId: "turn-1",
+        kind: "reasoning.delta",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          detail: "ing",
+        },
+      }),
+      makeActivity({
+        id: "reasoning-3",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        turnId: "turn-1",
+        kind: "reasoning.delta",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          detail: " app icon issues",
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.detail).toBe("**Fixing app icon issues");
+    expect(entries[0]?.tone).toBe("thinking");
+  });
 });
 
 describe("deriveTimelineEntries", () => {
