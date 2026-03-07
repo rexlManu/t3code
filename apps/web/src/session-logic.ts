@@ -428,7 +428,12 @@ export function deriveWorkLogEntries(
         id: activity.id,
         createdAt: activity.createdAt,
         label: activity.summary,
-        tone: activity.tone === "approval" ? "info" : activity.tone,
+        tone:
+          activity.kind === "reasoning.delta"
+            ? "thinking"
+            : activity.tone === "approval"
+              ? "info"
+              : activity.tone,
       };
       if (payload && typeof payload.detail === "string" && payload.detail.length > 0) {
         entry.detail = payload.detail;
@@ -474,9 +479,17 @@ function extractToolCommand(payload: Record<string, unknown> | null): string | n
   const item = asRecord(data?.item);
   const itemResult = asRecord(item?.result);
   const itemInput = asRecord(item?.input);
+  const itemState = asRecord(item?.state);
+  const itemStateInput = asRecord(itemState?.input);
   const candidates = [
     normalizeCommandValue(item?.command),
     normalizeCommandValue(itemInput?.command),
+    normalizeCommandValue(itemInput?.cmd),
+    normalizeCommandValue(itemInput?.argv),
+    normalizeCommandValue(itemStateInput?.command),
+    normalizeCommandValue(itemStateInput?.cmd),
+    normalizeCommandValue(itemStateInput?.argv),
+    normalizeCommandValue(itemState?.raw),
     normalizeCommandValue(itemResult?.command),
     normalizeCommandValue(data?.command),
   ];

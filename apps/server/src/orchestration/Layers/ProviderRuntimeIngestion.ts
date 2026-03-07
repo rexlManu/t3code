@@ -306,6 +306,35 @@ function runtimeEventToActivities(
       ];
     }
 
+    case "content.delta": {
+      if (
+        event.payload.streamKind !== "reasoning_text" &&
+        event.payload.streamKind !== "reasoning_summary_text"
+      ) {
+        return [];
+      }
+      const detail = event.payload.delta.trim();
+      if (detail.length === 0) {
+        return [];
+      }
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "reasoning.delta",
+          summary: event.payload.streamKind === "reasoning_summary_text" ? "Reasoning summary" : "Thinking",
+          payload: {
+            detail: truncateDetail(detail),
+            streamKind: event.payload.streamKind,
+            taskId: event.itemId ?? event.turnId ?? event.eventId,
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
     case "user-input.requested": {
       return [
         {
