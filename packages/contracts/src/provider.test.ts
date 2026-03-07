@@ -61,4 +61,19 @@ describe("ProviderSendTurnInput", () => {
     expect(parsed.modelOptions?.codex?.reasoningEffort).toBe("xhigh");
     expect(parsed.modelOptions?.codex?.fastMode).toBe(true);
   });
+
+  it("accepts opencode reasoning effort options", () => {
+    const parsed = decodeProviderSendTurnInput({
+      threadId: "thread-1",
+      model: "openai/gpt-5",
+      modelOptions: {
+        opencode: {
+          reasoningEffort: "high",
+        },
+      },
+    });
+
+    expect(parsed.model).toBe("openai/gpt-5");
+    expect(parsed.modelOptions?.opencode?.reasoningEffort).toBe("high");
+  });
 });

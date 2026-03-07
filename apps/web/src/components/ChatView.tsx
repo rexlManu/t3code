@@ -854,14 +854,22 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const selectedCodexFastModeEnabled =
     selectedProvider === "codex" ? composerDraft.codexFastMode : false;
   const selectedModelOptionsForDispatch = useMemo(() => {
-    if (selectedProvider !== "codex") {
-      return undefined;
+    if (selectedProvider === "codex") {
+      const codexOptions = {
+        ...(supportsReasoningEffort && selectedEffort ? { reasoningEffort: selectedEffort } : {}),
+        ...(selectedCodexFastModeEnabled ? { fastMode: true } : {}),
+      };
+      return Object.keys(codexOptions).length > 0 ? { codex: codexOptions } : undefined;
     }
-    const codexOptions = {
-      ...(supportsReasoningEffort && selectedEffort ? { reasoningEffort: selectedEffort } : {}),
-      ...(selectedCodexFastModeEnabled ? { fastMode: true } : {}),
-    };
-    return Object.keys(codexOptions).length > 0 ? { codex: codexOptions } : undefined;
+
+    if (selectedProvider === "opencode") {
+      if (!supportsReasoningEffort || !selectedEffort) {
+        return undefined;
+      }
+      return { opencode: { reasoningEffort: selectedEffort } };
+    }
+
+    return undefined;
   }, [selectedCodexFastModeEnabled, selectedEffort, selectedProvider, supportsReasoningEffort]);
   const selectedModelForPicker = selectedModel;
   const selectedModelForPickerWithCustomFallback = useMemo(() => {
@@ -3121,7 +3129,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     ],
   );
   const onEffortSelect = useCallback(
-    (effort: CodexReasoningEffort) => {
+    (effort: CodexReasoningEffort | null) => {
       setComposerDraftEffort(threadId, effort);
       scheduleComposerFocus();
     },
@@ -3679,12 +3687,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     onProviderModelChange={onProviderModelSelect}
                   />
 
-                  {selectedProvider === "codex" && selectedEffort != null ? (
+                  {supportsReasoningEffort ? (
                     <>
                       <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
-                      <CodexTraitsPicker
+                      <ModelTraitsPicker
                         effort={selectedEffort}
+                        defaultEffort={getDefaultReasoningEffort(selectedProvider)}
                         fastModeEnabled={selectedCodexFastModeEnabled}
+                        showFastMode={selectedProvider === "codex"}
+                        allowAutomaticEffort={selectedProvider === "opencode"}
                         options={reasoningOptions}
                         onEffortChange={onEffortSelect}
                         onFastModeChange={onCodexFastModeChange}
@@ -5665,15 +5676,17 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   );
 });
 
-const CodexTraitsPicker = memo(function CodexTraitsPicker(props: {
-  effort: CodexReasoningEffort;
+const ModelTraitsPicker = memo(function ModelTraitsPicker(props: {
+  effort: CodexReasoningEffort | null;
+  defaultEffort: CodexReasoningEffort | null;
   fastModeEnabled: boolean;
+  showFastMode: boolean;
+  allowAutomaticEffort: boolean;
   options: ReadonlyArray<CodexReasoningEffort>;
-  onEffortChange: (effort: CodexReasoningEffort) => void;
+  onEffortChange: (effort: CodexReasoningEffort | null) => void;
   onFastModeChange: (enabled: boolean) => void;
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const defaultReasoningEffort = getDefaultReasoningEffort("codex");
   const reasoningLabelByOption: Record<CodexReasoningEffort, string> = {
     low: "Low",
     medium: "Medium",
@@ -5681,7 +5694,7 @@ const CodexTraitsPicker = memo(function CodexTraitsPicker(props: {
     xhigh: "Extra High",
   };
   const triggerLabel = [
-    reasoningLabelByOption[props.effort],
+    props.effort ? reasoningLabelByOption[props.effort] : "Reasoning",
     ...(props.fastModeEnabled ? ["Fast"] : []),
   ]
     .filter(Boolean)
@@ -5710,35 +5723,46 @@ const CodexTraitsPicker = memo(function CodexTraitsPicker(props: {
         <MenuGroup>
           <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Reasoning</div>
           <MenuRadioGroup
-            value={props.effort}
+            value={props.effort ?? "auto"}
             onValueChange={(value) => {
               if (!value) return;
+              if (value === "auto") {
+                props.onEffortChange(null);
+                return;
+              }
               const nextEffort = props.options.find((option) => option === value);
               if (!nextEffort) return;
               props.onEffortChange(nextEffort);
             }}
           >
+            {props.allowAutomaticEffort ? <MenuRadioItem value="auto">Auto</MenuRadioItem> : null}
             {props.options.map((effort) => (
               <MenuRadioItem key={effort} value={effort}>
                 {reasoningLabelByOption[effort]}
-                {effort === defaultReasoningEffort ? " (default)" : ""}
+                {effort === props.defaultEffort ? " (default)" : ""}
               </MenuRadioItem>
             ))}
           </MenuRadioGroup>
         </MenuGroup>
-        <MenuDivider />
-        <MenuGroup>
-          <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Fast Mode</div>
-          <MenuRadioGroup
-            value={props.fastModeEnabled ? "on" : "off"}
-            onValueChange={(value) => {
-              props.onFastModeChange(value === "on");
-            }}
-          >
-            <MenuRadioItem value="off">off</MenuRadioItem>
-            <MenuRadioItem value="on">on</MenuRadioItem>
-          </MenuRadioGroup>
-        </MenuGroup>
+        {props.showFastMode ? (
+          <>
+            <MenuDivider />
+            <MenuGroup>
+              <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">
+                Fast Mode
+              </div>
+              <MenuRadioGroup
+                value={props.fastModeEnabled ? "on" : "off"}
+                onValueChange={(value) => {
+                  props.onFastModeChange(value === "on");
+                }}
+              >
+                <MenuRadioItem value="off">off</MenuRadioItem>
+                <MenuRadioItem value="on">on</MenuRadioItem>
+              </MenuRadioGroup>
+            </MenuGroup>
+          </>
+        ) : null}
       </MenuPopup>
     </Menu>
   );

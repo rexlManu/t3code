@@ -892,18 +892,16 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
         if (threadId.length === 0) {
           return;
         }
-        const nextEffort =
-          effort &&
-          REASONING_EFFORT_VALUES.has(effort) &&
-          effort !== DEFAULT_REASONING_EFFORT_BY_PROVIDER.codex
-            ? effort
-            : null;
         set((state) => {
           const existing = state.draftsByThreadId[threadId];
+          const base = existing ?? createEmptyThreadDraft();
+          const defaultEffort =
+            DEFAULT_REASONING_EFFORT_BY_PROVIDER[base.provider ?? "codex"] ?? null;
+          const nextEffort =
+            effort && REASONING_EFFORT_VALUES.has(effort) && effort !== defaultEffort ? effort : null;
           if (!existing && nextEffort === null) {
             return state;
           }
-          const base = existing ?? createEmptyThreadDraft();
           if (base.effort === nextEffort) {
             return state;
           }

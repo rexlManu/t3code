@@ -360,6 +360,36 @@ describe("composerDraftStore codex fast mode", () => {
   });
 });
 
+describe("composerDraftStore reasoning effort", () => {
+  const threadId = ThreadId.makeUnsafe("thread-effort");
+
+  beforeEach(() => {
+    useComposerDraftStore.setState({
+      draftsByThreadId: {},
+      draftThreadsByThreadId: {},
+      projectDraftThreadIdByProjectId: {},
+    });
+  });
+
+  it("treats codex default effort as implicit", () => {
+    const store = useComposerDraftStore.getState();
+
+    store.setProvider(threadId, "codex");
+    store.setEffort(threadId, "high");
+
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.effort).toBeNull();
+  });
+
+  it("persists opencode high effort because its default is automatic", () => {
+    const store = useComposerDraftStore.getState();
+
+    store.setProvider(threadId, "opencode");
+    store.setEffort(threadId, "high");
+
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.effort).toBe("high");
+  });
+});
+
 describe("composerDraftStore setModel", () => {
   const threadId = ThreadId.makeUnsafe("thread-model");
 
