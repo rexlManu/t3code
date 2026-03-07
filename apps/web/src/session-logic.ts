@@ -449,7 +449,10 @@ export function deriveWorkLogEntries(
       if (command) {
         entry.command = command;
       }
-      if (changedFiles.length > 0) {
+      if (
+        changedFiles.length > 0 &&
+        (payload?.itemType === "file_change" || payload?.itemType === "command_execution")
+      ) {
         entry.changedFiles = changedFiles;
       }
       const toolCall = extractToolCall(payload, command);
@@ -583,6 +586,48 @@ function stringifyPreview(value: unknown): string | null {
   }
 }
 
+function summarizeScalarValue(value: unknown): string | null {
+  const direct = asTrimmedString(value);
+  if (direct) {
+    return direct;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const parts = value
+    .map((entry) => summarizeScalarValue(entry))
+    .filter((entry): entry is string => entry !== null);
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
+function summarizeToolInput(
+  input: Record<string, unknown> | null,
+  command: string | null,
+): string | null {
+  if (!input) {
+    return null;
+  }
+  const entries = Object.entries(input)
+    .filter(([key]) => key !== "command" && key !== "cmd" && key !== "argv")
+    .map(([key, value]) => {
+      const summary = summarizeScalarValue(value);
+      return summary ? `${key}: ${summary}` : null;
+    })
+    .filter((entry): entry is string => entry !== null)
+    .slice(0, 4);
+  if (entries.length === 0) {
+    return null;
+  }
+  const summary = entries.join("  ·  ");
+  if (command && summary === command) {
+    return null;
+  }
+  return summary;
+}
+
 function extractToolCall(
   payload: Record<string, unknown> | null,
   command: string | null,
@@ -606,14 +651,7 @@ function extractToolCall(
     ...(itemType ? { itemType } : {}),
   };
 
-  const previewInput =
-    stateInput && Object.keys(stateInput).length > 0
-      ? Object.fromEntries(
-          Object.entries(stateInput).filter(([key]) => key !== "command" && key !== "cmd" && key !== "argv"),
-        )
-      : null;
-  const inputPreview =
-    previewInput && Object.keys(previewInput).length > 0 ? stringifyPreview(previewInput) : null;
+  const inputPreview = summarizeToolInput(stateInput, command);
   const outputPreview =
     stringifyPreview(state?.output) ??
     stringifyPreview(metadata?.output) ??

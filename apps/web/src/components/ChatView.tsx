@@ -5103,9 +5103,9 @@ const MessagesTimeline = memo(function MessagesTimeline({
                             </pre>
                           ) : null}
                           {workEntry.toolCall.input ? (
-                            <pre className="mt-2 overflow-x-auto rounded-md border border-border/60 bg-background/70 px-2 py-1 font-mono text-[11px] leading-relaxed text-muted-foreground/85">
+                            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground/75">
                               {workEntry.toolCall.input}
-                            </pre>
+                            </p>
                           ) : null}
                           {workEntry.changedFiles && workEntry.changedFiles.length > 0 ? (
                             <div className="mt-2 flex flex-wrap gap-1">
