@@ -43,10 +43,9 @@ function createGitCore(originUrl: string | null): GitCoreShape {
 }
 
 async function makeService(originUrl: string | null) {
-  const layer = Layer.mergeAll(
-    GitHostingCliLive,
-    Layer.succeed(GitCore, createGitCore(originUrl)),
-    NodeServices.layer,
+  const layer = GitHostingCliLive.pipe(
+    Layer.provideMerge(Layer.succeed(GitCore, createGitCore(originUrl))),
+    Layer.provideMerge(NodeServices.layer),
   );
 
   return Effect.runPromise(Effect.service(GitHostingCli).pipe(Effect.provide(layer)));
