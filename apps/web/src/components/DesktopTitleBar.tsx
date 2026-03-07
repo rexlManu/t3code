@@ -65,13 +65,18 @@ function WindowControlButton({
 
 function TitleBarBrand(props: { focused: boolean }) {
   return (
-    <div className="flex min-w-0 items-center gap-2">
-      <span className="flex size-4.5 items-center justify-center rounded-[0.45rem] bg-foreground text-[7px] font-black tracking-[0.18em] text-background">
+    <div className="flex min-w-0 items-center gap-2.5">
+      <span
+        className={cn(
+          "flex size-4.5 items-center justify-center rounded-[0.42rem] border border-border/80 bg-card/70 text-[7px] font-semibold tracking-[0.16em]",
+          props.focused ? "text-foreground" : "text-muted-foreground",
+        )}
+      >
         T3
       </span>
       <span
         className={cn(
-          "truncate text-[12px] font-medium tracking-[0.01em]",
+          "truncate text-[12px] font-semibold tracking-[0.01em]",
           props.focused ? "text-foreground" : "text-muted-foreground",
         )}
       >
@@ -79,7 +84,13 @@ function TitleBarBrand(props: { focused: boolean }) {
       </span>
       <span
         className={cn(
-          "rounded-[3px] bg-muted/50 px-1 py-0.5 text-[8px] font-medium tracking-[0.16em] text-muted-foreground uppercase",
+          "h-3.5 w-px bg-border/80",
+          !props.focused && "opacity-70",
+        )}
+      />
+      <span
+        className={cn(
+          "text-[8px] font-medium tracking-[0.22em] text-muted-foreground uppercase",
           !props.focused && "opacity-80",
         )}
       >
