@@ -576,6 +576,13 @@ function resolveIconPath(ext: "ico" | "icns" | "png"): string | null {
 
 function configureAppIdentity(): void {
   app.setName(APP_DISPLAY_NAME);
+  if (process.platform === "linux") {
+    const desktopFileName = process.env.T3CODE_LINUX_DESKTOP_FILE_NAME?.trim();
+    if (desktopFileName) {
+      const linuxApp = app as Electron.App & { setDesktopName?: (name: string) => void };
+      linuxApp.setDesktopName?.(desktopFileName);
+    }
+  }
   const commitHash = resolveAboutCommitHash();
   app.setAboutPanelOptions({
     applicationName: APP_DISPLAY_NAME,
@@ -1113,6 +1120,13 @@ function createWindow(): BrowserWindow {
       sandbox: true,
     },
   });
+
+  if (process.platform === "linux") {
+    const iconPath = resolveIconPath("png");
+    if (iconPath) {
+      window.setIcon(iconPath);
+    }
+  }
 
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.on("page-title-updated", (event) => {

@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
-import { watch } from "node:fs";
+import { mkdirSync, writeFileSync, watch } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import waitOn from "wait-on";
 
@@ -15,6 +16,8 @@ const watchedDirectories = [
 const forcedShutdownTimeoutMs = 1_500;
 const restartDebounceMs = 120;
 const childTreeGracePeriodMs = 1_200;
+const linuxDesktopFileName = "t3code-dev.desktop";
+const linuxDesktopEntryName = "T3 Code (Dev)";
 
 await waitOn({
   resources: [`tcp:${port}`, ...requiredFiles.map((filePath) => `file:${filePath}`)],
@@ -29,6 +32,50 @@ let currentApp = null;
 let restartQueue = Promise.resolve();
 const expectedExits = new WeakSet();
 const watchers = [];
+
+function quoteDesktopEntryExecArg(value) {
+  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+}
+
+function ensureLinuxDevDesktopFile(executablePath) {
+  if (process.platform !== "linux") {
+    return null;
+  }
+
+  const applicationsDir = join(
+    process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share"),
+    "applications",
+  );
+  const desktopFilePath = join(applicationsDir, linuxDesktopFileName);
+  const iconPath = join(desktopDir, "resources", "icon.png");
+  const execArgs = [
+    quoteDesktopEntryExecArg(executablePath),
+    quoteDesktopEntryExecArg(`--t3code-dev-root=${desktopDir}`),
+    quoteDesktopEntryExecArg(join(desktopDir, "dist-electron", "main.js")),
+    "%U",
+  ].join(" ");
+  const desktopEntry = [
+    "[Desktop Entry]",
+    "Version=1.0",
+    "Type=Application",
+    `Name=${linuxDesktopEntryName}`,
+    `Exec=${execArgs}`,
+    `TryExec=${executablePath}`,
+    `Icon=${iconPath}`,
+    "Terminal=false",
+    "NoDisplay=true",
+    "StartupNotify=true",
+    `StartupWMClass=${linuxDesktopEntryName}`,
+    "Categories=Development;",
+  ].join("\n");
+
+  mkdirSync(applicationsDir, { recursive: true });
+  writeFileSync(desktopFilePath, `${desktopEntry}\n`);
+
+  return {
+    desktopFileName: linuxDesktopFileName,
+  };
+}
 
 function killChildTreeByPid(pid, signal) {
   if (process.platform === "win32" || typeof pid !== "number") {
@@ -51,14 +98,23 @@ function startApp() {
     return;
   }
 
+  const executablePath = resolveElectronPath();
+  const linuxDesktopIntegration = ensureLinuxDevDesktopFile(executablePath);
+
   const app = spawn(
-    resolveElectronPath(),
+    executablePath,
     [`--t3code-dev-root=${desktopDir}`, "dist-electron/main.js"],
     {
       cwd: desktopDir,
       env: {
         ...childEnv,
         VITE_DEV_SERVER_URL: devServerUrl,
+        ...(linuxDesktopIntegration
+          ? {
+              CHROME_DESKTOP: linuxDesktopIntegration.desktopFileName,
+              T3CODE_LINUX_DESKTOP_FILE_NAME: linuxDesktopIntegration.desktopFileName,
+            }
+          : {}),
       },
       stdio: "inherit",
     },
