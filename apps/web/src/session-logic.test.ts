@@ -453,6 +453,31 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.command).toBe("bun run lint");
   });
 
+  it("extracts nested OpenCode command input from tool state", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "opencode-command-tool",
+        kind: "tool.updated",
+        summary: "Run command",
+        payload: {
+          itemType: "command_execution",
+          data: {
+            item: {
+              state: {
+                input: {
+                  command: ["pnpm", "lint"],
+                },
+              },
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry?.command).toBe("pnpm lint");
+  });
+
   it("extracts changed file paths for file-change tool activities", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -478,6 +503,24 @@ describe("deriveWorkLogEntries", () => {
       "apps/web/src/components/ChatView.tsx",
       "apps/web/src/session-logic.ts",
     ]);
+  });
+
+  it("renders reasoning deltas as thinking entries", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "reasoning-delta",
+        kind: "reasoning.delta",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          detail: "Tracing the OpenCode tool stream.",
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry?.tone).toBe("thinking");
+    expect(entry?.detail).toBe("Tracing the OpenCode tool stream.");
   });
 });
 
