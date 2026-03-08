@@ -38,6 +38,16 @@ import { useProjectNavigation } from "../hooks/useProjectNavigation";
 import { getTerminalStatusIndicator, getThreadStatusPill } from "../lib/threadStatus";
 import { toastManager } from "./ui/toast";
 import {
+  AlertDialog,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPopup,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
+import { Button } from "./ui/button";
+import { Checkbox } from "./ui/checkbox";
+import {
   getDesktopUpdateActionError,
   getDesktopUpdateButtonTooltip,
   isDesktopUpdateButtonDisabled,
@@ -100,6 +110,20 @@ type SidebarContextMenuState =
       kind: "project";
       id: ProjectId;
       position: { x: number; y: number };
+    };
+
+type DeleteDialogState =
+  | {
+      kind: "thread";
+      threadId: ThreadId;
+      threadTitle: string;
+      canDeleteWorktree: boolean;
+      worktreeDisplayPath: string | null;
+    }
+  | {
+      kind: "project";
+      projectId: ProjectId;
+      projectName: string;
     };
 
 const THREAD_CONTEXT_MENU_ENTRIES: readonly SidebarContextMenuEntry<ThreadContextMenuAction>[] = [
@@ -263,6 +287,9 @@ export default function Sidebar() {
   const [addingProject, setAddingProject] = useState(false);
   const [newCwd, setNewCwd] = useState("");
   const [contextMenuState, setContextMenuState] = useState<SidebarContextMenuState | null>(null);
+  const [deleteDialogState, setDeleteDialogState] = useState<DeleteDialogState | null>(null);
+  const [deleteDialogDeleteWorktree, setDeleteDialogDeleteWorktree] = useState(false);
+  const [deleteDialogSubmitting, setDeleteDialogSubmitting] = useState(false);
   const [isPickingFolder, setIsPickingFolder] = useState(false);
   const [isAddingProject, setIsAddingProject] = useState(false);
   const [renamingThreadId, setRenamingThreadId] = useState<ThreadId | null>(null);
@@ -501,6 +528,201 @@ export default function Sidebar() {
     [],
   );
 
+  const closeDeleteDialog = useCallback(() => {
+    if (deleteDialogSubmitting) return;
+    setDeleteDialogState(null);
+    setDeleteDialogDeleteWorktree(false);
+  }, [deleteDialogSubmitting]);
+
+  const performThreadDelete = useCallback(
+    async (threadId: ThreadId, options?: { deleteWorktree?: boolean }) => {
+      const api = readNativeApi();
+      if (!api) return false;
+
+      const thread = threads.find((entry) => entry.id === threadId);
+      if (!thread) return true;
+
+      const threadProject = projects.find((project) => project.id === thread.projectId);
+      const orphanedWorktreePath = getOrphanedWorktreePathForThread(threads, threadId);
+      const displayWorktreePath = orphanedWorktreePath
+        ? formatWorktreePathForDisplay(orphanedWorktreePath)
+        : null;
+      const shouldDeleteWorktree =
+        options?.deleteWorktree === true &&
+        orphanedWorktreePath !== null &&
+        threadProject !== undefined;
+
+      if (thread.session && thread.session.status !== "closed") {
+        await api.orchestration
+          .dispatchCommand({
+            type: "thread.session.stop",
+            commandId: newCommandId(),
+            threadId,
+            createdAt: new Date().toISOString(),
+          })
+          .catch(() => undefined);
+      }
+
+      try {
+        await api.terminal.close({
+          threadId,
+          deleteHistory: true,
+        });
+      } catch {
+        // Terminal may already be closed
+      }
+
+      const visiblePaneIds = routeThreadId
+        ? buildPaneIds(routeThreadId, currentSplitParam, MAX_SPLIT_PANES)
+        : [];
+      const shouldNavigateToFallback = visiblePaneIds.includes(threadId);
+      const fallbackThreadId = threads.find((entry) => entry.id !== threadId)?.id ?? null;
+
+      try {
+        await api.orchestration.dispatchCommand({
+          type: "thread.delete",
+          commandId: newCommandId(),
+          threadId,
+        });
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: `Failed to delete "${thread.title}"`,
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
+        return false;
+      }
+
+      clearComposerDraftForThread(threadId);
+      clearProjectDraftThreadById(thread.projectId, thread.id);
+      clearTerminalState(threadId);
+      if (shouldNavigateToFallback) {
+        const nextSplitRoute =
+          routeThreadId !== null ? removeSplitPane(routeThreadId, currentSplitParam, threadId) : null;
+        if (nextSplitRoute && nextSplitRoute.primaryId !== threadId) {
+          void navigate({
+            to: "/$threadId",
+            params: { threadId: nextSplitRoute.primaryId },
+            replace: true,
+            search: (previous) => {
+              const base =
+                nextSplitRoute.primaryId === routeThreadId
+                  ? stripSplitSearchParams(previous)
+                  : stripSplitSearchParams(stripDiffSearchParams(previous));
+              return nextSplitRoute.splitParam ? { ...base, split: nextSplitRoute.splitParam } : base;
+            },
+          });
+        } else if (fallbackThreadId) {
+          navigateToSingleThread(fallbackThreadId, { replace: true });
+        } else {
+          void navigate({ to: "/", replace: true });
+        }
+      }
+
+      if (!shouldDeleteWorktree || !orphanedWorktreePath || !threadProject) {
+        return true;
+      }
+
+      try {
+        await removeWorktreeMutation.mutateAsync({
+          cwd: threadProject.cwd,
+          path: orphanedWorktreePath,
+          force: true,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error removing worktree.";
+        console.error("Failed to remove orphaned worktree after thread deletion", {
+          threadId,
+          projectCwd: threadProject.cwd,
+          worktreePath: orphanedWorktreePath,
+          error,
+        });
+        toastManager.add({
+          type: "error",
+          title: "Thread deleted, but worktree removal failed",
+          description: `Could not remove ${displayWorktreePath ?? orphanedWorktreePath}. ${message}`,
+        });
+      }
+
+      return true;
+    },
+    [
+      clearComposerDraftForThread,
+      clearProjectDraftThreadById,
+      clearTerminalState,
+      currentSplitParam,
+      navigate,
+      navigateToSingleThread,
+      projects,
+      removeWorktreeMutation,
+      routeThreadId,
+      threads,
+    ],
+  );
+
+  const performProjectDelete = useCallback(
+    async (projectId: ProjectId) => {
+      const api = readNativeApi();
+      if (!api) return false;
+
+      const project = projects.find((entry) => entry.id === projectId);
+      if (!project) return true;
+
+      try {
+        const projectDraftThread = getDraftThreadByProjectId(projectId);
+        if (projectDraftThread) {
+          clearComposerDraftForThread(projectDraftThread.threadId);
+        }
+        clearProjectDraftThreadId(projectId);
+        await api.orchestration.dispatchCommand({
+          type: "project.delete",
+          commandId: newCommandId(),
+          projectId,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error deleting project.";
+        console.error("Failed to remove project", { projectId, error });
+        toastManager.add({
+          type: "error",
+          title: `Failed to delete "${project.name}"`,
+          description: message,
+        });
+        return false;
+      }
+
+      return true;
+    },
+    [clearComposerDraftForThread, clearProjectDraftThreadId, getDraftThreadByProjectId, projects],
+  );
+
+  const handleDeleteDialogConfirm = useCallback(async () => {
+    if (!deleteDialogState || deleteDialogSubmitting) return;
+
+    setDeleteDialogSubmitting(true);
+    try {
+      const didDelete =
+        deleteDialogState.kind === "thread"
+          ? await performThreadDelete(deleteDialogState.threadId, {
+              deleteWorktree:
+                deleteDialogState.canDeleteWorktree && deleteDialogDeleteWorktree,
+            })
+          : await performProjectDelete(deleteDialogState.projectId);
+
+      if (didDelete) {
+        setDeleteDialogState(null);
+        setDeleteDialogDeleteWorktree(false);
+      }
+    } finally {
+      setDeleteDialogSubmitting(false);
+    }
+  }, [
+    deleteDialogDeleteWorktree,
+    deleteDialogState,
+    deleteDialogSubmitting,
+    performProjectDelete,
+    performThreadDelete,
+  ]);
+
   const handleThreadContextMenuAction = useCallback(
     async (threadId: ThreadId, clicked: ThreadContextMenuAction) => {
       const api = readNativeApi();
@@ -541,136 +763,39 @@ export default function Sidebar() {
         return;
       }
       if (clicked !== "delete") return;
-      if (appSettings.confirmThreadDelete) {
-        const confirmed = await api.dialogs.confirm(
-          [
-            `Delete thread "${thread.title}"?`,
-            "This permanently clears conversation history for this thread.",
-          ].join("\n"),
-        );
-        if (!confirmed) {
-          return;
-        }
-      }
+
       const threadProject = projects.find((project) => project.id === thread.projectId);
       const orphanedWorktreePath = getOrphanedWorktreePathForThread(threads, threadId);
-      const displayWorktreePath = orphanedWorktreePath
-        ? formatWorktreePathForDisplay(orphanedWorktreePath)
-        : null;
       const canDeleteWorktree = orphanedWorktreePath !== null && threadProject !== undefined;
-      const shouldDeleteWorktree =
-        canDeleteWorktree &&
-        (await api.dialogs.confirm(
-          [
-            "This thread is the only one linked to this worktree:",
-            displayWorktreePath ?? orphanedWorktreePath,
-            "",
-            "Delete the worktree too?",
-          ].join("\n"),
-        ));
 
-      if (thread.session && thread.session.status !== "closed") {
-        await api.orchestration
-          .dispatchCommand({
-            type: "thread.session.stop",
-            commandId: newCommandId(),
-            threadId,
-            createdAt: new Date().toISOString(),
-          })
-          .catch(() => undefined);
-      }
-
-      try {
-        await api.terminal.close({
-          threadId,
-          deleteHistory: true,
-        });
-      } catch {
-        // Terminal may already be closed
-      }
-
-      const visiblePaneIds = routeThreadId
-        ? buildPaneIds(routeThreadId, currentSplitParam, MAX_SPLIT_PANES)
-        : [];
-      const shouldNavigateToFallback = visiblePaneIds.includes(threadId);
-      const fallbackThreadId = threads.find((entry) => entry.id !== threadId)?.id ?? null;
-      await api.orchestration.dispatchCommand({
-        type: "thread.delete",
-        commandId: newCommandId(),
-        threadId,
-      });
-      clearComposerDraftForThread(threadId);
-      clearProjectDraftThreadById(thread.projectId, thread.id);
-      clearTerminalState(threadId);
-      if (shouldNavigateToFallback) {
-        const nextSplitRoute =
-          routeThreadId !== null ? removeSplitPane(routeThreadId, currentSplitParam, threadId) : null;
-        if (nextSplitRoute && nextSplitRoute.primaryId !== threadId) {
-          void navigate({
-            to: "/$threadId",
-            params: { threadId: nextSplitRoute.primaryId },
-            replace: true,
-            search: (previous) => {
-              const base =
-                nextSplitRoute.primaryId === routeThreadId
-                  ? stripSplitSearchParams(previous)
-                  : stripSplitSearchParams(stripDiffSearchParams(previous));
-              return nextSplitRoute.splitParam ? { ...base, split: nextSplitRoute.splitParam } : base;
-            },
-          });
-        } else if (fallbackThreadId) {
-          navigateToSingleThread(fallbackThreadId, { replace: true });
-        } else {
-          void navigate({ to: "/", replace: true });
-        }
-      }
-
-      if (!shouldDeleteWorktree || !orphanedWorktreePath || !threadProject) {
+      if (!appSettings.confirmThreadDelete && !canDeleteWorktree) {
+        void performThreadDelete(threadId);
         return;
       }
 
-      try {
-        await removeWorktreeMutation.mutateAsync({
-          cwd: threadProject.cwd,
-          path: orphanedWorktreePath,
-          force: true,
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Unknown error removing worktree.";
-        console.error("Failed to remove orphaned worktree after thread deletion", {
-          threadId,
-          projectCwd: threadProject.cwd,
-          worktreePath: orphanedWorktreePath,
-          error,
-        });
-        toastManager.add({
-          type: "error",
-          title: "Thread deleted, but worktree removal failed",
-          description: `Could not remove ${displayWorktreePath ?? orphanedWorktreePath}. ${message}`,
-        });
-      }
+      setDeleteDialogDeleteWorktree(false);
+      setDeleteDialogState({
+        kind: "thread",
+        threadId,
+        threadTitle: thread.title,
+        canDeleteWorktree,
+        worktreeDisplayPath: orphanedWorktreePath
+          ? formatWorktreePathForDisplay(orphanedWorktreePath)
+          : null,
+      });
     },
     [
       appSettings.confirmThreadDelete,
-      clearComposerDraftForThread,
-      clearProjectDraftThreadById,
-      clearTerminalState,
-      currentSplitParam,
       handleOpenInSplitView,
       markThreadUnread,
-      navigate,
-      navigateToSingleThread,
+      performThreadDelete,
       projects,
-      removeWorktreeMutation,
-      routeThreadId,
       threads,
     ],
   );
 
   const handleProjectContextMenuAction = useCallback(
     async (projectId: ProjectId, clicked: ProjectContextMenuAction) => {
-      const api = readNativeApi();
-      if (!api) return;
       if (clicked !== "delete") return;
 
       const project = projects.find((entry) => entry.id === projectId);
@@ -686,39 +811,14 @@ export default function Sidebar() {
         return;
       }
 
-      const confirmed = await api.dialogs.confirm(
-        [`Delete project "${project.name}"?`, "This action cannot be undone."].join("\n"),
-      );
-      if (!confirmed) return;
-
-      try {
-        const projectDraftThread = getDraftThreadByProjectId(projectId);
-        if (projectDraftThread) {
-          clearComposerDraftForThread(projectDraftThread.threadId);
-        }
-        clearProjectDraftThreadId(projectId);
-        await api.orchestration.dispatchCommand({
-          type: "project.delete",
-          commandId: newCommandId(),
-          projectId,
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Unknown error deleting project.";
-        console.error("Failed to remove project", { projectId, error });
-        toastManager.add({
-          type: "error",
-          title: `Failed to delete "${project.name}"`,
-          description: message,
-        });
-      }
+      setDeleteDialogDeleteWorktree(false);
+      setDeleteDialogState({
+        kind: "project",
+        projectId,
+        projectName: project.name,
+      });
     },
-    [
-      clearComposerDraftForThread,
-      clearProjectDraftThreadId,
-      getDraftThreadByProjectId,
-      projects,
-      threads,
-    ],
+    [projects, threads],
   );
 
   const openThreadContextMenu = useCallback(
@@ -1366,6 +1466,68 @@ export default function Sidebar() {
         open={contextMenuState !== null}
         position={contextMenuState?.position ?? null}
       />
+
+      <AlertDialog
+        open={deleteDialogState !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeDeleteDialog();
+          }
+        }}
+      >
+        <AlertDialogPopup>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {deleteDialogState?.kind === "project" ? "Delete project?" : "Delete thread?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteDialogState?.kind === "project"
+                ? `This removes "${deleteDialogState.projectName}" from the sidebar. This action cannot be undone.`
+                : deleteDialogState
+                  ? `This permanently clears the conversation history for "${deleteDialogState.threadTitle}".`
+                  : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {deleteDialogState?.kind === "thread" && deleteDialogState.canDeleteWorktree ? (
+            <div className="px-6 pb-6">
+              <label
+                className="flex items-start gap-3 rounded border border-border bg-muted/40 p-3"
+                htmlFor="delete-thread-worktree"
+              >
+                <Checkbox
+                  checked={deleteDialogDeleteWorktree}
+                  className="mt-0.5"
+                  id="delete-thread-worktree"
+                  onCheckedChange={(checked) => setDeleteDialogDeleteWorktree(checked === true)}
+                />
+                <span className="flex flex-col gap-1">
+                  <span className="text-sm font-medium text-foreground">Also delete worktree</span>
+                  <span className="text-sm text-muted-foreground">
+                    {deleteDialogState.worktreeDisplayPath ??
+                      "Remove the orphaned worktree from disk too."}
+                  </span>
+                </span>
+              </label>
+            </div>
+          ) : null}
+
+          <AlertDialogFooter>
+            <Button disabled={deleteDialogSubmitting} variant="outline" onClick={closeDeleteDialog}>
+              Cancel
+            </Button>
+            <Button
+              disabled={deleteDialogSubmitting}
+              variant="destructive"
+              onClick={() => {
+                void handleDeleteDialogConfirm();
+              }}
+            >
+              {deleteDialogSubmitting ? "Deleting..." : "Delete"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
     </>
   );
 }
