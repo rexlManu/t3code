@@ -268,25 +268,17 @@ function WorkingIndicatorRow(props: { createdAt: string | null; nowIso: string }
     : "Working...";
 
   return (
-    <div aria-live="polite" className="flex items-start gap-4 px-1 py-0.5" role="status">
-      <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded bg-primary text-primary-foreground">
-        <BotIcon className="size-4" />
-      </div>
-      <div className="min-w-0 flex-1 pt-0.5">
-        <div className="inline-flex max-w-full items-center gap-3 rounded-2xl border border-border/80 bg-card/75 px-3 py-2 shadow-sm shadow-black/5 backdrop-blur-xs">
-          <div aria-hidden="true" className="flex shrink-0 items-center gap-2">
-            <span className="size-2 rounded-full bg-primary/80 animate-pulse" />
-            <span className="relative block h-1.5 w-14 overflow-hidden rounded-full bg-primary/10">
-              <span className="absolute inset-0 rounded-full bg-linear-to-r from-primary/0 via-primary/75 to-primary/0 bg-[length:200%_100%] animate-skeleton" />
-            </span>
-          </div>
-          <div className="min-w-0">
-            <p className="font-mono text-[10px] uppercase tracking-[0.24em] text-primary/75">
-              Agent active
-            </p>
-            <p className="truncate text-[12px] text-foreground/80">{elapsedLabel}</p>
-          </div>
-        </div>
+    <div aria-live="polite" className="py-0.5 pl-1.5" role="status">
+      <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-border/70 bg-background/70 px-2.5 py-1 text-[11px] text-muted-foreground/70 backdrop-blur-xs">
+        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary/80">
+          <BotIcon className="size-3" />
+        </span>
+        <span aria-hidden="true" className="inline-flex items-center gap-[3px]">
+          <span className="h-1 w-1 rounded-full bg-current/50 animate-pulse" />
+          <span className="h-1 w-1 rounded-full bg-current/50 animate-pulse [animation-delay:200ms]" />
+          <span className="h-1 w-1 rounded-full bg-current/50 animate-pulse [animation-delay:400ms]" />
+        </span>
+        <span className="truncate">{elapsedLabel}</span>
       </div>
     </div>
   );
