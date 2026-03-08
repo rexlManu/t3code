@@ -144,6 +144,7 @@ import {
   FolderClosedIcon,
   LockIcon,
   LockOpenIcon,
+  ListTodoIcon,
   SearchIcon,
   TerminalIcon,
   UserIcon,
@@ -3513,12 +3514,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
       {/* Error banner */}
       <ProviderHealthBanner status={activeProviderStatus} />
       <ThreadErrorBanner error={activeThread.error} />
-      <PlanModePanel activePlan={activePlan} />
 
       {/* Messages */}
       <div
         ref={setMessagesScrollContainerRef}
-        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain px-3 py-3 sm:px-5 sm:py-4"
+        className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain px-3 pb-3 pt-0 sm:px-5 sm:pb-4 sm:pt-0"
         onScroll={onMessagesScroll}
         onClickCapture={onMessagesClickCapture}
         onWheel={onMessagesWheel}
@@ -3530,28 +3530,37 @@ export default function ChatView({ threadId }: ChatViewProps) {
         onTouchEnd={onMessagesTouchEnd}
         onTouchCancel={onMessagesTouchEnd}
       >
-        <MessagesTimeline
-          key={activeThread.id}
-          hasMessages={timelineEntries.length > 0}
-          isWorking={isWorking}
-          activeTurnInProgress={isWorking || !latestTurnSettled}
-          activeTurnStartedAt={activeWorkStartedAt}
-          scrollContainer={messagesScrollElement}
-          timelineEntries={timelineEntries}
-          completionDividerBeforeEntryId={completionDividerBeforeEntryId}
-          completionSummary={completionSummary}
-          turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
-          nowIso={nowIso}
-          expandedWorkGroups={expandedWorkGroups}
-          onToggleWorkGroup={onToggleWorkGroup}
-          onOpenTurnDiff={onOpenTurnDiff}
-          revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
-          onRevertUserMessage={onRevertUserMessage}
-          isRevertingCheckpoint={isRevertingCheckpoint}
-          onImageExpand={onExpandTimelineImage}
-          markdownCwd={gitCwd ?? undefined}
-          workspaceRoot={activeProject?.cwd ?? undefined}
-        />
+        {activePlan ? (
+          <div className="pointer-events-none sticky top-2 z-10 h-0 sm:top-2.5">
+            <div className="pointer-events-auto">
+              <PlanModePanel activePlan={activePlan} />
+            </div>
+          </div>
+        ) : null}
+        <div className="pt-3 sm:pt-4">
+          <MessagesTimeline
+            key={activeThread.id}
+            hasMessages={timelineEntries.length > 0}
+            isWorking={isWorking}
+            activeTurnInProgress={isWorking || !latestTurnSettled}
+            activeTurnStartedAt={activeWorkStartedAt}
+            scrollContainer={messagesScrollElement}
+            timelineEntries={timelineEntries}
+            completionDividerBeforeEntryId={completionDividerBeforeEntryId}
+            completionSummary={completionSummary}
+            turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
+            nowIso={nowIso}
+            expandedWorkGroups={expandedWorkGroups}
+            onToggleWorkGroup={onToggleWorkGroup}
+            onOpenTurnDiff={onOpenTurnDiff}
+            revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
+            onRevertUserMessage={onRevertUserMessage}
+            isRevertingCheckpoint={isRevertingCheckpoint}
+            onImageExpand={onExpandTimelineImage}
+            markdownCwd={gitCwd ?? undefined}
+            workspaceRoot={activeProject?.cwd ?? undefined}
+          />
+        </div>
       </div>
 
       {/* Input bar */}
@@ -4356,46 +4365,109 @@ interface PlanModePanelProps {
   activePlan: ReturnType<typeof deriveActivePlanState>;
 }
 
-const PlanModePanel = memo(function PlanModePanel({ activePlan }: PlanModePanelProps) {
-  if (!activePlan) return null;
+const PlanStepStatusPill = memo(function PlanStepStatusPill(props: {
+  status: "pending" | "inProgress" | "completed";
+}) {
+  if (props.status === "completed") {
+    return (
+      <span className="mt-0.5 inline-flex h-auto shrink-0 rounded bg-success/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-tight text-success">
+        Done
+      </span>
+    );
+  }
+
+  if (props.status === "inProgress") {
+    return (
+      <span className="mt-0.5 inline-flex h-auto shrink-0 rounded bg-info/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-tight text-info">
+        Now
+      </span>
+    );
+  }
 
   return (
-    <div className="pt-3 mx-auto max-w-3xl">
-      <div className="rounded-xl border border-border/70 bg-muted/30 p-4">
-        <div className="flex items-center gap-2">
-          <Badge variant="secondary">Plan</Badge>
-          <span className="text-xs text-muted-foreground">
-            Updated {formatTimestamp(activePlan.createdAt)}
-          </span>
-        </div>
-        {activePlan.explanation ? (
-          <p className="mt-2 text-sm text-muted-foreground">{activePlan.explanation}</p>
-        ) : null}
-        <div className="mt-3 space-y-2">
-          {activePlan.steps.map((step) => (
-            <div
-              key={`${step.status}:${step.step}`}
-              className="flex items-start gap-3 rounded-lg border border-border/60 bg-background/80 px-3 py-2"
-            >
-              <Badge
-                variant={
-                  step.status === "completed"
-                    ? "default"
-                    : step.status === "inProgress"
-                      ? "secondary"
-                      : "outline"
-                }
-              >
-                {step.status === "inProgress"
-                  ? "In progress"
-                  : step.status === "completed"
-                    ? "Done"
-                    : "Pending"}
-              </Badge>
-              <div className="min-w-0 flex-1 text-sm">{step.step}</div>
+    <span className="mt-0.5 inline-flex h-auto shrink-0 rounded bg-foreground/8 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-tight text-muted-foreground">
+      Next
+    </span>
+  );
+});
+
+const PlanModePanel = memo(function PlanModePanel({ activePlan }: PlanModePanelProps) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!activePlan) return null;
+
+  const currentStep =
+    activePlan.steps.find((step) => step.status === "inProgress") ??
+    activePlan.steps.find((step) => step.status === "pending") ??
+    activePlan.steps.at(-1) ??
+    null;
+  const completedCount = activePlan.steps.filter((step) => step.status === "completed").length;
+
+  return (
+    <div className="mx-auto w-full max-w-3xl">
+      <div className="flex flex-col gap-3">
+        <button
+          type="button"
+          className="flex w-full items-center gap-3 overflow-hidden rounded border border-border-subtle bg-popover px-3 py-2 text-left shadow-none ring-0"
+          onClick={() => setExpanded((current) => !current)}
+          aria-label={expanded ? "Collapse plan" : "Expand plan"}
+        >
+          <div className="flex shrink-0 items-center gap-3">
+            <ListTodoIcon className="size-4 text-muted-foreground" />
+            <span className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+              Plan
+            </span>
+          </div>
+
+          {currentStep ? (
+            <div className="min-w-0 flex flex-1 items-center gap-3">
+              <PlanStepStatusPill status={currentStep.status} />
+              <span className="truncate text-sm text-foreground/78">{currentStep.step}</span>
             </div>
-          ))}
-        </div>
+          ) : (
+            <div className="min-w-0 flex-1 text-sm text-muted-foreground">No plan steps</div>
+          )}
+
+          <div className="ml-auto flex shrink-0 items-center gap-3 pl-2">
+            <span className="font-mono text-[10px] uppercase text-muted-foreground">
+              {completedCount}/{activePlan.steps.length}
+            </span>
+            <ChevronDownIcon className={cn("size-4 text-muted-foreground transition-transform", expanded && "rotate-180")} />
+          </div>
+        </button>
+
+        {expanded ? (
+          <div className="overflow-hidden rounded border border-border-subtle bg-popover shadow-none ring-0">
+            <div className="flex items-center justify-between gap-4 border-b border-border-subtle bg-foreground/5 px-4 py-2">
+              <span className="font-mono text-[11px] font-normal text-foreground/70">Plan</span>
+              <span className="font-mono text-[10px] uppercase text-muted-foreground">
+                Updated {formatTimestamp(activePlan.createdAt)}
+              </span>
+            </div>
+
+            <div className="max-h-56 overflow-y-auto">
+              <div className="flex flex-col gap-3 p-3">
+                {activePlan.explanation ? (
+                  <p className="font-mono text-[13px] leading-relaxed text-foreground/78">
+                    {activePlan.explanation}
+                  </p>
+                ) : null}
+
+                <div className="flex flex-col gap-1.5">
+                  {activePlan.steps.map((step) => (
+                    <div
+                      key={`${step.status}:${step.step}`}
+                      className="flex items-start gap-3 rounded border border-foreground/5 bg-foreground/[0.03] px-2.5 py-2"
+                    >
+                      <PlanStepStatusPill status={step.status} />
+                      <span className="text-sm leading-relaxed text-foreground/70">{step.step}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
