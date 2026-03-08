@@ -15,6 +15,11 @@ import {
   AutocompleteList,
   AutocompleteSeparator,
 } from "~/components/ui/autocomplete";
+import {
+  modalBackdropClassName,
+  modalCommandViewportClassName,
+  modalPopupClassName,
+} from "./overlayStyles";
 
 const CommandDialog = CommandDialogPrimitive.Root;
 
@@ -29,10 +34,7 @@ function CommandDialogTrigger(props: CommandDialogPrimitive.Trigger.Props) {
 function CommandDialogBackdrop({ className, ...props }: CommandDialogPrimitive.Backdrop.Props) {
   return (
     <CommandDialogPrimitive.Backdrop
-      className={cn(
-        "fixed inset-0 z-50 bg-black/32 backdrop-blur-sm transition-all duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0",
-        className,
-      )}
+      className={cn(modalBackdropClassName, className)}
       data-slot="command-dialog-backdrop"
       {...props}
     />
@@ -42,10 +44,7 @@ function CommandDialogBackdrop({ className, ...props }: CommandDialogPrimitive.B
 function CommandDialogViewport({ className, ...props }: CommandDialogPrimitive.Viewport.Props) {
   return (
     <CommandDialogPrimitive.Viewport
-      className={cn(
-        "fixed inset-0 z-50 flex flex-col items-center px-4 py-[max(--spacing(4),4vh)] sm:py-[10vh]",
-        className,
-      )}
+      className={cn(modalCommandViewportClassName, className)}
       data-slot="command-dialog-viewport"
       {...props}
     />
@@ -59,7 +58,8 @@ function CommandDialogPopup({ className, children, ...props }: CommandDialogPrim
       <CommandDialogViewport>
         <CommandDialogPrimitive.Popup
           className={cn(
-            "-translate-y-[calc(1.25rem*var(--nested-dialogs))] relative row-start-2 flex max-h-105 min-h-0 w-full min-w-0 max-w-xl scale-[calc(1-0.1*var(--nested-dialogs))] flex-col rounded-2xl border bg-popover not-dark:bg-clip-padding text-popover-foreground opacity-[calc(1-0.1*var(--nested-dialogs))] shadow-lg/5 outline-none transition-[scale,opacity,translate] duration-200 ease-in-out will-change-transform before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-2xl)-1px)] before:bg-muted/72 before:shadow-[0_1px_--theme(--color-black/4%)] data-nested:data-ending-style:translate-y-8 data-nested:data-starting-style:translate-y-8 data-nested-dialog-open:origin-top data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0 **:data-[slot=scroll-area-viewport]:data-has-overflow-y:pe-1 dark:before:shadow-[0_-1px_--theme(--color-white/6%)]",
+            modalPopupClassName,
+            "max-h-[min(78vh,44rem)] max-w-3xl **:data-[slot=scroll-area-viewport]:data-has-overflow-y:pe-1",
             className,
           )}
           data-slot="command-dialog-popup"
@@ -94,11 +94,11 @@ function CommandInput({
   ...props
 }: React.ComponentProps<typeof AutocompleteInput>) {
   return (
-    <div className="px-2.5 py-1.5">
+    <div className="border-b border-border bg-popover px-4 py-3">
       <AutocompleteInput
         autoFocus
         className={cn(
-          "border-transparent! bg-transparent! shadow-none before:hidden has-focus-visible:ring-0",
+          "rounded-xl border border-input bg-background px-1 shadow-none before:hidden has-focus-visible:ring-0",
           className,
         )}
         placeholder={placeholder}
@@ -113,7 +113,7 @@ function CommandInput({
 function CommandList({ className, ...props }: React.ComponentProps<typeof AutocompleteList>) {
   return (
     <AutocompleteList
-      className={cn("not-empty:scroll-py-2 not-empty:p-2", className)}
+      className={cn("not-empty:scroll-py-3 not-empty:p-3", className)}
       data-slot="command-list"
       {...props}
     />
@@ -123,7 +123,7 @@ function CommandList({ className, ...props }: React.ComponentProps<typeof Autoco
 function CommandEmpty({ className, ...props }: React.ComponentProps<typeof AutocompleteEmpty>) {
   return (
     <AutocompleteEmpty
-      className={cn("not-empty:py-6", className)}
+      className={cn("px-4 py-8 text-sm text-muted-foreground not-empty:py-8", className)}
       data-slot="command-empty"
       {...props}
     />
@@ -134,7 +134,7 @@ function CommandPanel({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       className={cn(
-        "-mx-px not-has-[+[data-slot=command-footer]]:-mb-px relative min-h-0 rounded-t-xl not-has-[+[data-slot=command-footer]]:rounded-b-2xl border border-b-0 bg-popover bg-clip-padding shadow-xs/5 [clip-path:inset(0_1px)] not-has-[+[data-slot=command-footer]]:[clip-path:inset(0_1px_1px_1px_round_0_0_calc(var(--radius-2xl)-1px)_calc(var(--radius-2xl)-1px))] before:pointer-events-none before:absolute before:inset-0 before:rounded-t-[calc(var(--radius-xl)-1px)] **:data-[slot=scroll-area-scrollbar]:mt-2",
+        "bg-popover relative min-h-0 rounded-[inherit] **:data-[slot=scroll-area-scrollbar]:mt-2",
         className,
       )}
       {...props}
@@ -151,7 +151,11 @@ function CommandGroupLabel({
   ...props
 }: React.ComponentProps<typeof AutocompleteGroupLabel>) {
   return (
-    <AutocompleteGroupLabel className={className} data-slot="command-group-label" {...props} />
+    <AutocompleteGroupLabel
+      className={cn("px-2 pb-2 pt-3 text-xs font-medium text-muted-foreground", className)}
+      data-slot="command-group-label"
+      {...props}
+    />
   );
 }
 
@@ -161,7 +165,14 @@ function CommandCollection({ ...props }: React.ComponentProps<typeof Autocomplet
 
 function CommandItem({ className, ...props }: React.ComponentProps<typeof AutocompleteItem>) {
   return (
-    <AutocompleteItem className={cn("py-1.5", className)} data-slot="command-item" {...props} />
+    <AutocompleteItem
+      className={cn(
+        "rounded-xl border border-transparent px-3 py-3 transition-colors data-highlighted:border-primary/25 data-highlighted:bg-primary/8",
+        className,
+      )}
+      data-slot="command-item"
+      {...props}
+    />
   );
 }
 
@@ -195,7 +206,7 @@ function CommandFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       className={cn(
-        "flex items-center justify-between gap-2 rounded-b-[calc(var(--radius-2xl)-1px)] border-t px-5 py-3 text-muted-foreground text-xs",
+        "flex items-center justify-between gap-2 border-t border-border bg-muted px-5 py-3 text-xs text-muted-foreground",
         className,
       )}
       data-slot="command-footer"

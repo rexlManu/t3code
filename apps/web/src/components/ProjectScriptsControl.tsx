@@ -30,19 +30,18 @@ import { cn, isMacPlatform } from "~/lib/utils";
 import { Button } from "./ui/button";
 import {
   Dialog,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogPanel,
   DialogPopup,
   DialogTitle,
 } from "./ui/dialog";
+import { Field, FieldLabel } from "./ui/field";
 import { Group, GroupSeparator } from "./ui/group";
 import { Input } from "./ui/input";
-import { Label } from "./ui/label";
 import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
-import { Switch } from "./ui/switch";
+import { Checkbox } from "./ui/checkbox";
 import { Textarea } from "./ui/textarea";
 
 const SCRIPT_ICONS: Array<{ id: ProjectScriptIcon; label: string }> = [
@@ -378,24 +377,30 @@ export default function ProjectScriptsControl({
         open={dialogOpen}
       >
         <DialogPopup>
-          <DialogHeader>
-            <DialogTitle>{isEditing ? "Edit Action" : "Add Action"}</DialogTitle>
-            <DialogDescription>
-              Actions are project-scoped commands you can run from the top bar or keybindings.
-            </DialogDescription>
+          <DialogHeader className="pb-5">
+            <div className="flex items-center gap-4">
+              <div className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
+                {isEditing ? <SettingsIcon /> : <PlusIcon />}
+              </div>
+              <div className="min-w-0">
+                <DialogTitle>{isEditing ? "Edit action" : "Add custom action"}</DialogTitle>
+              </div>
+            </div>
           </DialogHeader>
           <DialogPanel>
-            <form id={addScriptFormId} className="space-y-4" onSubmit={submitAddScript}>
-              <div className="space-y-1.5">
-                <Label htmlFor="script-name">Name</Label>
-                <div className="flex items-center gap-2">
+            <form id={addScriptFormId} className="flex flex-col gap-4" onSubmit={submitAddScript}>
+              <Field className="gap-2">
+                <FieldLabel htmlFor="script-name" className="text-muted-foreground">
+                  Name
+                </FieldLabel>
+                <div className="flex items-center gap-3">
                   <Popover onOpenChange={setIconPickerOpen} open={iconPickerOpen}>
                     <PopoverTrigger
                       render={
                         <Button
                           type="button"
                           variant="outline"
-                          className="size-9 shrink-0 hover:bg-popover active:bg-popover data-pressed:bg-popover data-pressed:shadow-xs/5 data-pressed:before:shadow-[0_1px_--theme(--color-black/4%)] dark:data-pressed:before:shadow-[0_-1px_--theme(--color-white/6%)]"
+                          className="size-10 shrink-0"
                           aria-label="Choose icon"
                         />
                       }
@@ -410,11 +415,12 @@ export default function ProjectScriptsControl({
                             <button
                               key={entry.id}
                               type="button"
-                              className={`relative flex flex-col items-center gap-2 rounded-md border px-2 py-2 text-xs ${
+                              className={cn(
+                                "relative flex flex-col items-center gap-2 rounded-lg border px-2 py-2 text-xs transition-colors",
                                 isSelected
-                                  ? "border-primary/70 bg-primary/10"
-                                  : "border-border/70 hover:bg-accent/60"
-                              }`}
+                                  ? "border-primary/40 bg-primary/8 text-primary"
+                                  : "border-border/70 hover:bg-accent/60",
+                              )}
                               onClick={() => {
                                 setIcon(entry.id);
                                 setIconPickerOpen(false);
@@ -435,9 +441,12 @@ export default function ProjectScriptsControl({
                     onChange={(event) => setName(event.target.value)}
                   />
                 </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="script-keybinding">Keybinding</Label>
+              </Field>
+
+              <Field className="gap-2">
+                <FieldLabel htmlFor="script-keybinding" className="text-muted-foreground">
+                  Keybinding
+                </FieldLabel>
                 <Input
                   id="script-keybinding"
                   placeholder="Press shortcut"
@@ -445,40 +454,50 @@ export default function ProjectScriptsControl({
                   readOnly
                   onKeyDown={captureKeybinding}
                 />
-                <p className="text-xs text-muted-foreground">
-                  Press a shortcut. Use <code>Backspace</code> to clear.
-                </p>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="script-command">Command</Label>
+              </Field>
+
+              <Field className="gap-2">
+                <FieldLabel htmlFor="script-command" className="text-muted-foreground">
+                  Command
+                </FieldLabel>
                 <Textarea
                   id="script-command"
-                  placeholder="bun test"
+                  placeholder="bun run test"
                   value={command}
                   onChange={(event) => setCommand(event.target.value)}
                 />
-              </div>
-              <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2 text-sm">
-                <span>Run automatically on worktree creation</span>
-                <Switch
+              </Field>
+
+              <label className="flex items-center gap-3 py-1 text-sm text-muted-foreground">
+                <Checkbox
                   checked={runOnWorktreeCreate}
-                  onCheckedChange={(checked) => setRunOnWorktreeCreate(Boolean(checked))}
+                  onCheckedChange={(checked) => setRunOnWorktreeCreate(checked === true)}
                 />
+                <span>Run on worktree creation</span>
               </label>
-              {validationError && <p className="text-sm text-destructive">{validationError}</p>}
+
+              {validationError ? (
+                <p className="text-sm text-destructive">{validationError}</p>
+              ) : null}
             </form>
           </DialogPanel>
           <DialogFooter>
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
+              size="toolbar"
               onClick={() => {
                 setDialogOpen(false);
               }}
             >
               Cancel
             </Button>
-            <Button form={addScriptFormId} type="submit">
+            <Button
+              form={addScriptFormId}
+              type="submit"
+              variant="toolbar-primary"
+              size="toolbar"
+            >
               {isEditing ? "Save changes" : "Save action"}
             </Button>
           </DialogFooter>

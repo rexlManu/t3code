@@ -128,7 +128,7 @@ export function ProjectPickerDialog(props: ProjectPickerDialogProps) {
 
   return (
     <CommandDialog open={props.open} onOpenChange={props.onOpenChange}>
-      <CommandDialogPopup className="mt-[18vh] translate-y-0 sm:mt-[20vh] sm:max-w-2xl sm:translate-y-0">
+      <CommandDialogPopup className="translate-y-0 sm:max-w-2xl sm:translate-y-0">
         <Command
           items={itemKeys}
           filteredItems={itemKeys}
@@ -168,8 +168,9 @@ export function ProjectPickerDialog(props: ProjectPickerDialogProps) {
                         key={itemKey}
                         value={itemKey}
                         className={cn(
-                          "cursor-pointer rounded-lg px-3 py-2.5",
-                          highlightedItemKey === itemKey && "bg-accent text-accent-foreground",
+                          "cursor-pointer",
+                          highlightedItemKey === itemKey &&
+                            "border-primary/25 bg-primary/8 text-foreground",
                         )}
                         onMouseDown={(event) => {
                           event.preventDefault();
@@ -219,8 +220,9 @@ export function ProjectPickerDialog(props: ProjectPickerDialogProps) {
                         key={itemKey}
                         value={itemKey}
                         className={cn(
-                          "cursor-pointer rounded-lg px-3 py-2.5",
-                          highlightedItemKey === itemKey && "bg-accent text-accent-foreground",
+                          "cursor-pointer",
+                          highlightedItemKey === itemKey &&
+                            "border-primary/25 bg-primary/8 text-foreground",
                         )}
                         onMouseDown={(event) => {
                           event.preventDefault();

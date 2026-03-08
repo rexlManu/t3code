@@ -198,6 +198,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from "./ui/dialog";
+import { Field, FieldLabel } from "./ui/field";
 import { toastManager } from "./ui/toast";
 import { getOpencodeModelCatalog, getOpencodeModelDisplayName } from "../opencodeModelCatalog";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
@@ -5103,15 +5104,24 @@ const ProposedPlanCard = memo(function ProposedPlanCard({
         }}
       >
         <DialogPopup className="max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Save plan to workspace</DialogTitle>
-            <DialogDescription>
-              Enter a path relative to <code>{workspaceRoot ?? "the workspace"}</code>.
-            </DialogDescription>
+          <DialogHeader className="pb-5">
+            <div className="flex items-center gap-4">
+              <div className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
+                <FolderIcon />
+              </div>
+              <div className="min-w-0 space-y-1">
+                <DialogTitle>Save plan to workspace</DialogTitle>
+                <DialogDescription>
+                  Enter a path relative to <code>{workspaceRoot ?? "the workspace"}</code>.
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
-          <DialogPanel className="space-y-3">
-            <label htmlFor={savePathInputId} className="grid gap-1.5">
-              <span className="text-xs font-medium text-foreground">Workspace path</span>
+          <DialogPanel>
+            <Field className="gap-2">
+              <FieldLabel htmlFor={savePathInputId} className="text-muted-foreground">
+                Workspace path
+              </FieldLabel>
               <Input
                 id={savePathInputId}
                 value={savePath}
@@ -5120,19 +5130,20 @@ const ProposedPlanCard = memo(function ProposedPlanCard({
                 spellCheck={false}
                 disabled={isSavingToWorkspace}
               />
-            </label>
+            </Field>
           </DialogPanel>
           <DialogFooter>
             <Button
-              variant="outline"
-              size="sm"
+              variant="ghost"
+              size="toolbar"
               onClick={() => setIsSaveDialogOpen(false)}
               disabled={isSavingToWorkspace}
             >
               Cancel
             </Button>
             <Button
-              size="sm"
+              variant="toolbar-primary"
+              size="toolbar"
               onClick={() => void handleSaveToWorkspace()}
               disabled={isSavingToWorkspace}
             >
