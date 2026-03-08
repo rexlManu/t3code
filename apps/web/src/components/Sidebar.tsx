@@ -48,6 +48,17 @@ import {
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
 import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "./ui/dialog";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import {
   getDesktopUpdateActionError,
   getDesktopUpdateButtonTooltip,
   isDesktopUpdateButtonDisabled,
@@ -284,7 +295,7 @@ export default function Sidebar() {
   });
   const queryClient = useQueryClient();
   const removeWorktreeMutation = useMutation(gitRemoveWorktreeMutationOptions({ queryClient }));
-  const [addingProject, setAddingProject] = useState(false);
+  const [addProjectDialogOpen, setAddProjectDialogOpen] = useState(false);
   const [newCwd, setNewCwd] = useState("");
   const [contextMenuState, setContextMenuState] = useState<SidebarContextMenuState | null>(null);
   const [deleteDialogState, setDeleteDialogState] = useState<DeleteDialogState | null>(null);
@@ -420,7 +431,7 @@ export default function Sidebar() {
       const finishAddingProject = () => {
         setIsAddingProject(false);
         setNewCwd("");
-        setAddingProject(false);
+        setAddProjectDialogOpen(false);
       };
 
       const existing = projects.find((project) => project.cwd === cwd);
@@ -1079,60 +1090,18 @@ export default function Sidebar() {
               type="button"
               className={cn(
                 "inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/75 transition-colors",
-                addingProject
+                addProjectDialogOpen
                   ? "bg-primary/10 text-primary"
                   : "hover:bg-accent/70 hover:text-foreground",
               )}
               onClick={() => {
-                setAddingProject((current) => !current);
+                setAddProjectDialogOpen(true);
               }}
             >
               <PlusIcon className="size-3.5" />
               <span>Add project</span>
             </button>
           </div>
-
-          {addingProject ? (
-            <div className="mb-3 space-y-2 rounded-xl border border-border/60 bg-secondary/35 p-2.5">
-              <input
-                className="w-full rounded-md border border-border bg-background/70 px-2 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-ring focus:outline-none"
-                placeholder="/path/to/project"
-                value={newCwd}
-                onChange={(event) => setNewCwd(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") handleAddProject();
-                  if (event.key === "Escape") setAddingProject(false);
-                }}
-              />
-              {isElectron ? (
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-center rounded-md border border-border px-2 py-1.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-background/70 disabled:cursor-not-allowed disabled:opacity-60"
-                  onClick={() => void handlePickFolder()}
-                  disabled={isPickingFolder || isAddingProject}
-                >
-                  {isPickingFolder ? "Picking folder..." : "Browse for folder"}
-                </button>
-              ) : null}
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  className="flex-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground transition-colors duration-150 hover:bg-primary/90"
-                  onClick={handleAddProject}
-                  disabled={isAddingProject}
-                >
-                  {isAddingProject ? "Adding..." : "Add"}
-                </button>
-                <button
-                  type="button"
-                  className="flex-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground/80 transition-colors duration-150 hover:bg-background/70"
-                  onClick={() => setAddingProject(false)}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : null}
 
           <SidebarMenu>
             {projects.map((project) => {
@@ -1413,7 +1382,7 @@ export default function Sidebar() {
             })}
           </SidebarMenu>
 
-          {projects.length === 0 && !addingProject && (
+          {projects.length === 0 && (
             <div className="px-2 pt-4 text-center text-xs text-muted-foreground/60">
               No projects yet.
               <br />
@@ -1466,6 +1435,81 @@ export default function Sidebar() {
         open={contextMenuState !== null}
         position={contextMenuState?.position ?? null}
       />
+
+      <Dialog
+        open={addProjectDialogOpen}
+        onOpenChange={(open) => {
+          if (isAddingProject) return;
+          setAddProjectDialogOpen(open);
+        }}
+        onOpenChangeComplete={(open) => {
+          if (open) return;
+          setNewCwd("");
+        }}
+      >
+        <DialogPopup className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Add project</DialogTitle>
+            <DialogDescription>
+              Add a workspace folder to the sidebar and open a fresh thread for it.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="space-y-4">
+            <form
+              id="add-project-form"
+              className="space-y-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                handleAddProject();
+              }}
+            >
+              <div className="rounded-xl border border-border/70 bg-muted/35 p-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="project-workspace-root">Workspace path</Label>
+                  <Input
+                    id="project-workspace-root"
+                    autoFocus
+                    className="font-mono text-xs sm:text-xs"
+                    placeholder="/path/to/project"
+                    value={newCwd}
+                    onChange={(event) => setNewCwd(event.target.value)}
+                  />
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground/75">
+                  Use an absolute folder path. If the project already exists, the sidebar will jump
+                  to its latest thread instead of creating a duplicate.
+                </p>
+              </div>
+              {isElectron ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-center"
+                  onClick={() => void handlePickFolder()}
+                  disabled={isPickingFolder || isAddingProject}
+                >
+                  {isPickingFolder ? "Picking folder..." : "Browse for folder"}
+                </Button>
+              ) : null}
+            </form>
+          </DialogPanel>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setAddProjectDialogOpen(false);
+              }}
+              disabled={isAddingProject}
+            >
+              Cancel
+            </Button>
+            <Button form="add-project-form" type="submit" disabled={isAddingProject}>
+              {isAddingProject ? "Adding..." : "Add project"}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
 
       <AlertDialog
         open={deleteDialogState !== null}
