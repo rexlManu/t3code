@@ -46,7 +46,7 @@ const buttonVariants = cva(
         toolbar:
           "border-foreground/10 bg-foreground/5 text-foreground/90 shadow-none before:hidden [:hover,[data-pressed]]:bg-foreground/10 [:hover,[data-pressed]]:text-foreground dark:border-foreground/10 dark:bg-foreground/5 dark:text-foreground/90 dark:[:hover,[data-pressed]]:bg-foreground/10",
         "toolbar-primary":
-          "border-primary/45 bg-primary text-primary-foreground shadow-[0_10px_24px_-14px_color-mix(in_srgb,var(--primary)_85%,transparent)] before:hidden [:hover,[data-pressed]]:bg-primary/92 dark:border-primary/45",
+          "border-primary/45 bg-primary text-primary-foreground shadow-none before:hidden [:hover,[data-pressed]]:bg-primary/92 dark:border-primary/45",
         secondary:
           "border-transparent bg-secondary text-secondary-foreground [:active,[data-pressed]]:bg-secondary/80 [:hover,[data-pressed]]:bg-secondary/90",
       },
