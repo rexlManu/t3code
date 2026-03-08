@@ -3,11 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { type ProviderKind } from "@t3tools/contracts";
 import { getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
+import { getProviderLabel, PROVIDER_ORDER } from "@t3tools/shared/provider";
 import { ZapIcon } from "lucide-react";
 
 import {
   APP_SERVICE_TIER_OPTIONS,
   MAX_CUSTOM_MODEL_LENGTH,
+  getCustomModelsForProvider,
+  patchCustomModels,
   shouldShowFastTierIcon,
   useAppSettings,
 } from "../appSettings";
@@ -45,57 +48,30 @@ const MODEL_PROVIDER_SETTINGS: Array<{
   description: string;
   placeholder: string;
   example: string;
-}> = [
-  {
-    provider: "codex",
-    title: "Codex",
-    description: "Save additional Codex model slugs for the picker and `/model` command.",
-    placeholder: "your-codex-model-slug",
-    example: "gpt-6.7-codex-ultra-preview",
-  },
-  {
-    provider: "opencode",
-    title: "OpenCode",
-    description: "Save additional OpenCode model slugs for future provider integration work.",
-    placeholder: "your-opencode-model-slug",
-    example: "gpt-5",
-  },
-] as const;
-
-function getCustomModelsForProvider(
-  settings: ReturnType<typeof useAppSettings>["settings"],
-  provider: ProviderKind,
-) {
-  switch (provider) {
-    case "opencode":
-      return settings.customOpencodeModels;
-    case "codex":
-    default:
-      return settings.customCodexModels;
-  }
-}
+}> = PROVIDER_ORDER.map((provider) => ({
+  provider,
+  title: getProviderLabel(provider),
+  description: `Save additional ${getProviderLabel(provider)} model slugs for the picker and \`/model\` command.`,
+  placeholder: `your-${provider}-model-slug`,
+  example:
+    provider === "codex"
+      ? "gpt-6.7-codex-ultra-preview"
+      : provider === "opencode"
+        ? "openai/gpt-5"
+        : provider === "copilot"
+          ? "claude-sonnet-4.7"
+          : provider === "claudeCode"
+            ? "claude-sonnet-4-7"
+            : provider === "cursor"
+              ? "composer-2"
+              : "gemini-3.1-pro-preview",
+}));
 
 function getDefaultCustomModelsForProvider(
   defaults: ReturnType<typeof useAppSettings>["defaults"],
   provider: ProviderKind,
 ) {
-  switch (provider) {
-    case "opencode":
-      return defaults.customOpencodeModels;
-    case "codex":
-    default:
-      return defaults.customCodexModels;
-  }
-}
-
-function patchCustomModels(provider: ProviderKind, models: string[]) {
-  switch (provider) {
-    case "opencode":
-      return { customOpencodeModels: models };
-    case "codex":
-    default:
-      return { customCodexModels: models };
-  }
+  return getCustomModelsForProvider(defaults, provider);
 }
 
 function SettingsRouteView() {
@@ -106,10 +82,12 @@ function SettingsRouteView() {
   const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
   const [customModelInputByProvider, setCustomModelInputByProvider] = useState<
     Record<ProviderKind, string>
-  >({
-    codex: "",
-    opencode: "",
-  });
+  >(
+    Object.fromEntries(PROVIDER_ORDER.map((provider) => [provider, ""])) as Record<
+      ProviderKind,
+      string
+    >,
+  );
   const [customModelErrorByProvider, setCustomModelErrorByProvider] = useState<
     Partial<Record<ProviderKind, string | null>>
   >({});

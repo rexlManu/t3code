@@ -1,4 +1,5 @@
 import { type ProviderKind, type ThreadId } from "@t3tools/contracts";
+import { PROVIDER_ORDER } from "@t3tools/shared/provider";
 import { Effect, Layer, Option } from "effect";
 
 import { ProviderSessionRuntimeRepository } from "../../persistence/Services/ProviderSessionRuntime.ts";
@@ -25,8 +26,8 @@ function decodeProviderKind(
   providerName: string,
   operation: string,
 ): Effect.Effect<ProviderKind, ProviderSessionDirectoryPersistenceError> {
-  if (providerName === "codex" || providerName === "opencode") {
-    return Effect.succeed(providerName);
+  if (PROVIDER_ORDER.includes(providerName as ProviderKind)) {
+    return Effect.succeed(providerName as ProviderKind);
   }
   return Effect.fail(
     new ProviderSessionDirectoryPersistenceError({

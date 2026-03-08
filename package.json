@@ -22,6 +22,9 @@
   },
   "type": "module",
   "scripts": {
+    "predev": "node scripts/patch-copilot-sdk.mjs",
+    "predev:server": "node scripts/patch-copilot-sdk.mjs",
+    "predev:desktop": "node scripts/patch-copilot-sdk.mjs",
     "dev": "node scripts/dev-runner.ts dev",
     "dev:server": "node scripts/dev-runner.ts dev:server",
     "dev:web": "node scripts/dev-runner.ts dev:web",

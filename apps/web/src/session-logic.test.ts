@@ -553,6 +553,149 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
+  it("collapses read tool details down to the target path", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "read-tool",
+        kind: "tool.completed",
+        summary: "Read complete",
+        payload: {
+          itemType: "dynamic_tool_call",
+          status: "completed",
+          data: {
+            item: {
+              tool: "read",
+              state: {
+                input: {
+                  filePath: "apps/web/package.json",
+                  offset: 1,
+                  limit: 220,
+                },
+              },
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry?.toolCall).toEqual({
+      name: "read",
+      status: "completed",
+      itemType: "dynamic_tool_call",
+      input: "apps/web/package.json",
+      targetPath: "apps/web/package.json",
+      compact: "path",
+    });
+  });
+
+  it("extracts Claude tool metadata from data.toolName and data.input", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "claude-read-tool",
+        kind: "tool.completed",
+        summary: "Tool call complete",
+        payload: {
+          itemType: "dynamic_tool_call",
+          status: "completed",
+          data: {
+            toolName: "Read",
+            input: {
+              file_path: "apps/server/package.json",
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry?.toolCall).toEqual({
+      name: "Read",
+      status: "completed",
+      itemType: "dynamic_tool_call",
+      input: "apps/server/package.json",
+      targetPath: "apps/server/package.json",
+      compact: "path",
+    });
+  });
+
+  it("collapses grep and glob tool details down to the target path", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "grep-tool",
+        kind: "tool.completed",
+        summary: "Grep complete",
+        payload: {
+          itemType: "dynamic_tool_call",
+          status: "completed",
+          data: {
+            item: {
+              tool: "grep",
+              state: {
+                input: {
+                  pattern: "foo",
+                  path: "/tmp/project",
+                },
+              },
+            },
+          },
+        },
+      }),
+      makeActivity({
+        id: "glob-tool",
+        kind: "tool.completed",
+        summary: "Glob complete",
+        payload: {
+          itemType: "dynamic_tool_call",
+          status: "completed",
+          data: {
+            item: {
+              tool: "glob",
+              state: {
+                input: {
+                  pattern: "**/*.ts",
+                  path: "/tmp/project",
+                },
+              },
+            },
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+    expect(entries[0]?.toolCall?.input).toBe("/tmp/project");
+    expect(entries[0]?.toolCall?.compact).toBe("path");
+    expect(entries[1]?.toolCall?.input).toBe("/tmp/project");
+    expect(entries[1]?.toolCall?.compact).toBe("path");
+  });
+
+  it("ignores generic Gemini tool placeholders when inferring the tool name", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "gemini-tool",
+        kind: "tool.completed",
+        summary: "Tool complete",
+        payload: {
+          itemType: "dynamic_tool_call",
+          status: "completed",
+          title: "tool",
+          data: {
+            tool_name: "tool",
+            rawInput: {
+              pattern: "**/*.ts",
+              path: "/tmp/project",
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry?.toolCall?.name).toBe("glob");
+    expect(entry?.toolCall?.targetPath).toBe("/tmp/project");
+  });
+
   it("extracts changed file paths for file-change tool activities", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -580,6 +723,45 @@ describe("deriveWorkLogEntries", () => {
     ]);
   });
 
+  it("extracts changed file paths from Claude file-change input", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "claude-edit-tool",
+        kind: "tool.completed",
+        summary: "File change complete",
+        payload: {
+          itemType: "file_change",
+          status: "completed",
+          data: {
+            toolName: "Edit",
+            input: {
+              file_path: "apps/web/src/appSettings.ts",
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry?.changedFiles).toEqual([{ path: "apps/web/src/appSettings.ts" }]);
+  });
+
+  it("extracts changed files from patch/update detail text", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "patch-work-event",
+        kind: "tool.completed",
+        summary: "Patch applied complete",
+        payload: {
+          detail: "Success. Updated the following files: M apps/web/src/appSettings.ts",
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry?.changedFiles).toEqual([{ path: "apps/web/src/appSettings.ts" }]);
+  });
+
   it("does not surface read-only tool paths as changed files", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -605,7 +787,88 @@ describe("deriveWorkLogEntries", () => {
 
     const [entry] = deriveWorkLogEntries(activities, undefined);
     expect(entry?.changedFiles).toBeUndefined();
-    expect(entry?.toolCall?.input).toBe("pattern: **/*.png  ·  path: /tmp/project");
+    expect(entry?.toolCall?.input).toBe("/tmp/project");
+    expect(entry?.toolCall?.compact).toBe("path");
+  });
+
+  it("hides internal TodoWrite work log events", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "todo-write",
+        kind: "tool.completed",
+        summary: "TodoWrite complete",
+        tone: "tool",
+        payload: {
+          itemType: "dynamic_tool_call",
+          title: "TodoWrite",
+          status: "completed",
+          data: {
+            item: {
+              tool: "TodoWrite",
+            },
+          },
+        },
+      }),
+      makeActivity({
+        id: "read-tool",
+        kind: "tool.completed",
+        summary: "Read complete",
+        tone: "tool",
+        payload: {
+          itemType: "dynamic_tool_call",
+          data: {
+            item: {
+              tool: "read",
+              state: {
+                input: {
+                  filePath: "apps/web/package.json",
+                },
+              },
+            },
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+    expect(entries.map((entry) => entry.id)).toEqual(["read-tool"]);
+  });
+
+  it("hides empty generic Claude tool rows", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "claude-empty-tool",
+        kind: "tool.completed",
+        summary: "Tool call complete",
+        tone: "tool",
+        payload: {
+          itemType: "dynamic_tool_call",
+          status: "completed",
+          detail: "Read: {}",
+          data: {
+            toolName: "Read",
+            input: {},
+          },
+        },
+      }),
+      makeActivity({
+        id: "claude-empty-file-change",
+        kind: "tool.completed",
+        summary: "File change complete",
+        tone: "tool",
+        payload: {
+          itemType: "file_change",
+          status: "completed",
+          detail: "Edit: {}",
+          data: {
+            toolName: "Edit",
+            input: {},
+          },
+        },
+      }),
+    ];
+
+    expect(deriveWorkLogEntries(activities, undefined)).toEqual([]);
   });
 
   it("renders reasoning deltas as thinking entries", () => {
@@ -829,30 +1092,44 @@ describe("deriveActiveWorkStartedAt", () => {
 });
 
 describe("PROVIDER_OPTIONS", () => {
-  it("exposes Codex and OpenCode while keeping Claude Code and Cursor as unavailable placeholders", () => {
+  it("exposes the supported providers in the expected order", () => {
     const opencode = PROVIDER_OPTIONS.find((option) => option.value === "opencode");
+    const copilot = PROVIDER_OPTIONS.find((option) => option.value === "copilot");
     const claude = PROVIDER_OPTIONS.find((option) => option.value === "claudeCode");
     const cursor = PROVIDER_OPTIONS.find((option) => option.value === "cursor");
+    const gemini = PROVIDER_OPTIONS.find((option) => option.value === "gemini");
     expect(PROVIDER_OPTIONS).toEqual([
       { value: "codex", label: "Codex", available: true },
       { value: "opencode", label: "OpenCode", available: true },
-      { value: "claudeCode", label: "Claude Code", available: false },
-      { value: "cursor", label: "Cursor", available: false },
+      { value: "copilot", label: "GitHub Copilot", available: true },
+      { value: "claudeCode", label: "Claude Code", available: true },
+      { value: "cursor", label: "Cursor", available: true },
+      { value: "gemini", label: "Gemini", available: true },
     ]);
     expect(opencode).toEqual({
       value: "opencode",
       label: "OpenCode",
       available: true,
     });
+    expect(copilot).toEqual({
+      value: "copilot",
+      label: "GitHub Copilot",
+      available: true,
+    });
     expect(claude).toEqual({
       value: "claudeCode",
       label: "Claude Code",
-      available: false,
+      available: true,
     });
     expect(cursor).toEqual({
       value: "cursor",
       label: "Cursor",
-      available: false,
+      available: true,
+    });
+    expect(gemini).toEqual({
+      value: "gemini",
+      label: "Gemini",
+      available: true,
     });
   });
 });

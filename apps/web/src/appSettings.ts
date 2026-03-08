@@ -2,6 +2,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import { Option, Schema } from "effect";
 import { type ProviderKind, type ProviderServiceTier } from "@t3tools/contracts";
 import { getDefaultModel, getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
+import { PROVIDER_ORDER } from "@t3tools/shared/provider";
 
 const APP_SETTINGS_STORAGE_KEY = "t3code:app-settings:v1";
 const MAX_CUSTOM_MODEL_COUNT = 32;
@@ -26,10 +27,15 @@ export const APP_SERVICE_TIER_OPTIONS = [
 export type AppServiceTier = (typeof APP_SERVICE_TIER_OPTIONS)[number]["value"];
 const AppServiceTierSchema = Schema.Literals(["auto", "fast", "flex"]);
 const MODELS_WITH_FAST_SUPPORT = new Set(["gpt-5.4"]);
-const BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
-  codex: new Set(getModelOptions("codex").map((option) => option.slug)),
-  opencode: new Set(getModelOptions("opencode").map((option) => option.slug)),
-};
+const BUILT_IN_MODEL_SLUGS_BY_PROVIDER = PROVIDER_ORDER.reduce<
+  Record<ProviderKind, ReadonlySet<string>>
+>(
+  (acc, provider) => {
+    acc[provider] = new Set(getModelOptions(provider).map((option) => option.slug));
+    return acc;
+  },
+  {} as Record<ProviderKind, ReadonlySet<string>>,
+);
 
 const AppSettingsSchema = Schema.Struct({
   codexBinaryPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(
@@ -50,12 +56,53 @@ const AppSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(() => []),
     Schema.withConstructorDefault(() => Option.some([])),
   ),
+  customCopilotModels: Schema.Array(Schema.String).pipe(
+    Schema.withDecodingDefault(() => []),
+    Schema.withConstructorDefault(() => Option.some([])),
+  ),
+  customClaudeCodeModels: Schema.Array(Schema.String).pipe(
+    Schema.withDecodingDefault(() => []),
+    Schema.withConstructorDefault(() => Option.some([])),
+  ),
+  customCursorModels: Schema.Array(Schema.String).pipe(
+    Schema.withDecodingDefault(() => []),
+    Schema.withConstructorDefault(() => Option.some([])),
+  ),
+  customGeminiModels: Schema.Array(Schema.String).pipe(
+    Schema.withDecodingDefault(() => []),
+    Schema.withConstructorDefault(() => Option.some([])),
+  ),
 });
 export type AppSettings = typeof AppSettingsSchema.Type;
 export interface AppModelOption {
   slug: string;
   name: string;
   isCustom: boolean;
+}
+
+const CUSTOM_MODEL_SETTINGS_KEY_BY_PROVIDER = {
+  codex: "customCodexModels",
+  opencode: "customOpencodeModels",
+  copilot: "customCopilotModels",
+  claudeCode: "customClaudeCodeModels",
+  cursor: "customCursorModels",
+  gemini: "customGeminiModels",
+} as const satisfies Record<ProviderKind, keyof AppSettings>;
+
+export function getCustomModelsForProvider(
+  settings: Pick<AppSettings, (typeof CUSTOM_MODEL_SETTINGS_KEY_BY_PROVIDER)[ProviderKind]>,
+  provider: ProviderKind,
+): readonly string[] {
+  return settings[CUSTOM_MODEL_SETTINGS_KEY_BY_PROVIDER[provider]];
+}
+
+export function patchCustomModels(
+  provider: ProviderKind,
+  models: string[],
+): Partial<AppSettings> {
+  return {
+    [CUSTOM_MODEL_SETTINGS_KEY_BY_PROVIDER[provider]]: models,
+  } as Partial<AppSettings>;
 }
 
 export function resolveAppServiceTier(serviceTier: AppServiceTier): ProviderServiceTier | null {
@@ -110,11 +157,12 @@ export function normalizeCustomModelSlugs(
 }
 
 function normalizeAppSettings(settings: AppSettings): AppSettings {
-  return {
-    ...settings,
-    customCodexModels: normalizeCustomModelSlugs(settings.customCodexModels, "codex"),
-    customOpencodeModels: normalizeCustomModelSlugs(settings.customOpencodeModels, "opencode"),
-  };
+  const normalized = { ...settings };
+  for (const provider of PROVIDER_ORDER) {
+    const key = CUSTOM_MODEL_SETTINGS_KEY_BY_PROVIDER[provider];
+    normalized[key] = normalizeCustomModelSlugs(settings[key], provider) as never;
+  }
+  return normalized;
 }
 
 export function getAppModelOptions(

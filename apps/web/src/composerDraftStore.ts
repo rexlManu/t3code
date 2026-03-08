@@ -9,6 +9,7 @@ import {
   type RuntimeMode,
 } from "@t3tools/contracts";
 import { normalizeModelSlug } from "@t3tools/shared/model";
+import { PROVIDER_ORDER } from "@t3tools/shared/provider";
 import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
@@ -267,7 +268,9 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
 }
 
 function normalizeProviderKind(value: unknown): ProviderKind | null {
-  return value === "codex" || value === "opencode" ? value : null;
+  return typeof value === "string" && PROVIDER_ORDER.includes(value as ProviderKind)
+    ? (value as ProviderKind)
+    : null;
 }
 
 function revokeObjectPreviewUrl(previewUrl: string): void {

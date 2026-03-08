@@ -12,6 +12,7 @@ import {
   resolveModelSlug,
   resolveModelSlugForProvider,
 } from "@t3tools/shared/model";
+import { PROVIDER_ORDER } from "@t3tools/shared/provider";
 import { create } from "zustand";
 import { type ChatMessage, type Project, type Thread } from "./types";
 
@@ -158,25 +159,35 @@ function toLegacySessionStatus(
 }
 
 function toLegacyProvider(providerName: string | null): ProviderKind {
-  if (providerName === "codex" || providerName === "opencode") {
-    return providerName;
+  if (providerName && PROVIDER_ORDER.includes(providerName as ProviderKind)) {
+    return providerName as ProviderKind;
   }
   return "codex";
 }
 
-const CODEX_MODEL_SLUGS = new Set<string>(getModelOptions("codex").map((option) => option.slug));
+const MODEL_SLUGS_BY_PROVIDER = PROVIDER_ORDER.reduce<Record<ProviderKind, ReadonlySet<string>>>(
+  (acc, provider) => {
+    acc[provider] = new Set<string>(getModelOptions(provider).map((option) => option.slug));
+    return acc;
+  },
+  {} as Record<ProviderKind, ReadonlySet<string>>,
+);
 
 function inferProviderForThreadModel(input: {
   readonly model: string;
   readonly sessionProviderName: string | null;
 }): ProviderKind {
-  if (input.sessionProviderName === "codex" || input.sessionProviderName === "opencode") {
-    return input.sessionProviderName;
+  if (input.sessionProviderName && PROVIDER_ORDER.includes(input.sessionProviderName as ProviderKind)) {
+    return input.sessionProviderName as ProviderKind;
   }
-  const normalizedCodex = normalizeModelSlug(input.model, "codex");
-  if (normalizedCodex && CODEX_MODEL_SLUGS.has(normalizedCodex)) {
-    return "codex";
+
+  for (const provider of PROVIDER_ORDER) {
+    const normalizedModel = normalizeModelSlug(input.model, provider);
+    if (normalizedModel && MODEL_SLUGS_BY_PROVIDER[provider].has(normalizedModel)) {
+      return provider;
+    }
   }
+
   return "codex";
 }
 

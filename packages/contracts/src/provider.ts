@@ -63,9 +63,32 @@ const OpencodeProviderStartOptions = Schema.Struct({
   password: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 
+const CopilotProviderStartOptions = Schema.Struct({
+  binaryPath: Schema.optional(TrimmedNonEmptyStringSchema),
+  configDir: Schema.optional(TrimmedNonEmptyStringSchema),
+});
+
+const ClaudeCodeProviderStartOptions = Schema.Struct({
+  binaryPath: Schema.optional(TrimmedNonEmptyStringSchema),
+  permissionMode: Schema.optional(TrimmedNonEmptyStringSchema),
+  maxThinkingTokens: Schema.optional(Schema.Int),
+});
+
+const CursorProviderStartOptions = Schema.Struct({
+  binaryPath: Schema.optional(TrimmedNonEmptyStringSchema),
+});
+
+const GeminiProviderStartOptions = Schema.Struct({
+  binaryPath: Schema.optional(TrimmedNonEmptyStringSchema),
+});
+
 const ProviderStartOptions = Schema.Struct({
   codex: Schema.optional(CodexProviderStartOptions),
   opencode: Schema.optional(OpencodeProviderStartOptions),
+  copilot: Schema.optional(CopilotProviderStartOptions),
+  claudeCode: Schema.optional(ClaudeCodeProviderStartOptions),
+  cursor: Schema.optional(CursorProviderStartOptions),
+  gemini: Schema.optional(GeminiProviderStartOptions),
 });
 
 export const ProviderSessionStartInput = Schema.Struct({

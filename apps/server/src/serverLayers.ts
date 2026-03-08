@@ -18,7 +18,11 @@ import { OrchestrationProjectionPipelineLive } from "./orchestration/Layers/Proj
 import { OrchestrationProjectionSnapshotQueryLive } from "./orchestration/Layers/ProjectionSnapshotQuery";
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion";
 import { ProviderUnsupportedError } from "./provider/Errors";
+import { ClaudeCodeAdapterLive } from "./provider/Layers/ClaudeCodeAdapter";
 import { makeCodexAdapterLive } from "./provider/Layers/CodexAdapter";
+import { CopilotAdapterLive } from "./provider/Layers/CopilotAdapter";
+import { CursorAdapterLive } from "./provider/Layers/CursorAdapter";
+import { GeminiAdapterLive } from "./provider/Layers/GeminiAdapter";
 import { OpenCodeAdapterLive } from "./provider/Layers/OpenCodeAdapter";
 import { ProviderAdapterRegistryLive } from "./provider/Layers/ProviderAdapterRegistry";
 import { makeProviderServiceLive } from "./provider/Layers/ProviderService";
@@ -61,6 +65,10 @@ export function makeServerProviderLayer(): Layer.Layer<
     const adapterRegistryLayer = ProviderAdapterRegistryLive.pipe(
       Layer.provide(codexAdapterLayer),
       Layer.provideMerge(OpenCodeAdapterLive),
+      Layer.provideMerge(CopilotAdapterLive),
+      Layer.provideMerge(ClaudeCodeAdapterLive),
+      Layer.provideMerge(CursorAdapterLive),
+      Layer.provideMerge(GeminiAdapterLive),
       Layer.provideMerge(providerSessionDirectoryLayer),
     );
     return makeProviderServiceLive(
