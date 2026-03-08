@@ -35,7 +35,11 @@ export interface WorkLogEntry {
   label: string;
   detail?: string;
   command?: string;
-  changedFiles?: ReadonlyArray<string>;
+  changedFiles?: ReadonlyArray<{
+    path: string;
+    additions?: number;
+    deletions?: number;
+  }>;
   toolCall?: {
     name: string;
     status?: string;
@@ -581,6 +585,10 @@ function extractToolCommand(payload: Record<string, unknown> | null): string | n
   return candidates.find((candidate) => candidate !== null) ?? null;
 }
 
+function asOptionalNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
 function truncatePreview(value: string, maxChars = 800, maxLines = 10): string | null {
   const normalized = value.replace(/\r\n/g, "\n").trim();
   if (normalized.length === 0) {
@@ -693,16 +701,46 @@ function extractToolCall(
   return toolCall;
 }
 
-function pushChangedFile(target: string[], seen: Set<string>, value: unknown) {
+function pushChangedFile(
+  target: Array<{ path: string; additions?: number; deletions?: number }>,
+  seen: Map<string, number>,
+  value: unknown,
+  statSource?: Record<string, unknown> | null,
+) {
   const normalized = asTrimmedString(value);
-  if (!normalized || seen.has(normalized)) {
+  if (!normalized) {
     return;
   }
-  seen.add(normalized);
-  target.push(normalized);
+
+  const additions = asOptionalNumber(statSource?.additions);
+  const deletions = asOptionalNumber(statSource?.deletions);
+  const existingIndex = seen.get(normalized);
+  if (existingIndex !== undefined) {
+    const existing = target[existingIndex];
+    if (!existing) return;
+    if (existing.additions === undefined && additions !== undefined) {
+      existing.additions = additions;
+    }
+    if (existing.deletions === undefined && deletions !== undefined) {
+      existing.deletions = deletions;
+    }
+    return;
+  }
+
+  seen.set(normalized, target.length);
+  target.push({
+    path: normalized,
+    ...(additions !== undefined ? { additions } : {}),
+    ...(deletions !== undefined ? { deletions } : {}),
+  });
 }
 
-function collectChangedFiles(value: unknown, target: string[], seen: Set<string>, depth: number) {
+function collectChangedFiles(
+  value: unknown,
+  target: Array<{ path: string; additions?: number; deletions?: number }>,
+  seen: Map<string, number>,
+  depth: number,
+) {
   if (depth > 4 || target.length >= 12) {
     return;
   }
@@ -721,12 +759,12 @@ function collectChangedFiles(value: unknown, target: string[], seen: Set<string>
     return;
   }
 
-  pushChangedFile(target, seen, record.path);
-  pushChangedFile(target, seen, record.filePath);
-  pushChangedFile(target, seen, record.relativePath);
-  pushChangedFile(target, seen, record.filename);
-  pushChangedFile(target, seen, record.newPath);
-  pushChangedFile(target, seen, record.oldPath);
+  pushChangedFile(target, seen, record.path, record);
+  pushChangedFile(target, seen, record.filePath, record);
+  pushChangedFile(target, seen, record.relativePath, record);
+  pushChangedFile(target, seen, record.filename, record);
+  pushChangedFile(target, seen, record.newPath, record);
+  pushChangedFile(target, seen, record.oldPath, record);
 
   for (const nestedKey of [
     "item",
@@ -750,10 +788,12 @@ function collectChangedFiles(value: unknown, target: string[], seen: Set<string>
   }
 }
 
-function extractChangedFiles(payload: Record<string, unknown> | null): string[] {
+function extractChangedFiles(
+  payload: Record<string, unknown> | null,
+): Array<{ path: string; additions?: number; deletions?: number }> {
   const data = asRecord(payload?.data);
-  const changedFiles: string[] = [];
-  collectChangedFiles(data, changedFiles, new Set<string>(), 0);
+  const changedFiles: Array<{ path: string; additions?: number; deletions?: number }> = [];
+  collectChangedFiles(data, changedFiles, new Map<string, number>(), 0);
   return changedFiles;
 }
 

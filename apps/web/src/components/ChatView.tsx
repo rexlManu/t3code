@@ -33,6 +33,7 @@ import {
 } from "@t3tools/shared/model";
 import {
   memo,
+  type ReactNode,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -79,6 +80,7 @@ import {
   type PendingApproval,
   type PendingUserInput,
   type ProviderPickerKind,
+  type WorkLogEntry,
   PROVIDER_OPTIONS,
   deriveWorkLogEntries,
   hasToolActivityForTurn,
@@ -109,16 +111,13 @@ import {
   MAX_THREAD_TERMINAL_COUNT,
   type ChatMessage,
   type Thread,
-  type TurnDiffFileChange,
   type TurnDiffSummary,
 } from "../types";
 import { basenameOfPath, getVscodeIconUrlForEntry } from "../vscode-icons";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import {
-  buildTurnDiffTree,
   summarizeTurnDiffStats,
-  type TurnDiffTreeNode,
 } from "../lib/turnDiffTree";
 import BranchToolbar from "./BranchToolbar";
 import GitActionsControl from "./GitActionsControl";
@@ -131,6 +130,7 @@ import ChatMarkdown from "./ChatMarkdown";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import {
+  type LucideIcon,
   BotIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
@@ -140,11 +140,15 @@ import {
   FolderIcon,
   DiffIcon,
   EllipsisIcon,
+  HistoryIcon,
   FolderClosedIcon,
   LockIcon,
   LockOpenIcon,
+  SearchIcon,
+  TerminalIcon,
   UserIcon,
   Undo2Icon,
+  WrenchIcon,
   XIcon,
   CopyIcon,
   StarIcon,
@@ -3546,7 +3550,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
           isRevertingCheckpoint={isRevertingCheckpoint}
           onImageExpand={onExpandTimelineImage}
           markdownCwd={gitCwd ?? undefined}
-          resolvedTheme={resolvedTheme}
           workspaceRoot={activeProject?.cwd ?? undefined}
         />
       </div>
@@ -4535,132 +4538,332 @@ const DiffStatLabel = memo(function DiffStatLabel(props: {
   );
 });
 
-function collectDirectoryPaths(nodes: ReadonlyArray<TurnDiffTreeNode>): string[] {
-  const paths: string[] = [];
-  for (const node of nodes) {
-    if (node.kind !== "directory") continue;
-    paths.push(node.path);
-    paths.push(...collectDirectoryPaths(node.children));
-  }
-  return paths;
+type ArtifactFileRow = {
+  path: string;
+  additions?: number;
+  deletions?: number;
+  onClick?: () => void;
+};
+
+type WorkArtifactVariant =
+  | "command"
+  | "fileChanges"
+  | "mcp"
+  | "search"
+  | "tool"
+  | "agent"
+  | "work";
+
+const MAX_VISIBLE_ARTIFACT_FILE_ROWS = 4;
+const MAX_VISIBLE_COMMAND_GROUP_ROWS = 3;
+
+type RenderableWorkArtifact =
+  | { kind: "entry"; entry: WorkLogEntry }
+  | { kind: "command-group"; entries: WorkLogEntry[] };
+
+function resolveWorkArtifactVariant(entry: WorkLogEntry): WorkArtifactVariant {
+  const itemType = entry.toolCall?.itemType;
+  if (entry.command || itemType === "command_execution") return "command";
+  if (itemType === "file_change" || (entry.changedFiles?.length ?? 0) > 0) return "fileChanges";
+  if (itemType === "mcp_tool_call") return "mcp";
+  if (itemType === "web_search") return "search";
+  if (itemType === "collab_agent_tool_call") return "agent";
+  if (itemType === "dynamic_tool_call") return "tool";
+  return "work";
 }
 
-function buildDirectoryExpansionState(
-  directoryPaths: ReadonlyArray<string>,
-  expanded: boolean,
-): Record<string, boolean> {
-  const expandedState: Record<string, boolean> = {};
-  for (const directoryPath of directoryPaths) {
-    expandedState[directoryPath] = expanded;
+function artifactSectionDefinition(variant: WorkArtifactVariant): {
+  label: string;
+  Icon: LucideIcon;
+} {
+  switch (variant) {
+    case "command":
+      return { label: "Command Run", Icon: TerminalIcon };
+    case "fileChanges":
+      return { label: "File Changes", Icon: FileIcon };
+    case "mcp":
+      return { label: "MCP Call", Icon: WrenchIcon };
+    case "search":
+      return { label: "Web Search", Icon: SearchIcon };
+    case "agent":
+      return { label: "Agent Call", Icon: BotIcon };
+    case "tool":
+      return { label: "Tool Call", Icon: WrenchIcon };
+    default:
+      return { label: "Work Event", Icon: HistoryIcon };
   }
-  return expandedState;
 }
 
-const ChangedFilesTree = memo(function ChangedFilesTree(props: {
-  turnId: TurnId;
-  files: ReadonlyArray<TurnDiffFileChange>;
-  allDirectoriesExpanded: boolean;
-  resolvedTheme: "light" | "dark";
-  onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
-}) {
-  const { files, allDirectoriesExpanded, onOpenTurnDiff, resolvedTheme, turnId } = props;
-  const treeNodes = useMemo(() => buildTurnDiffTree(files), [files]);
-  const directoryPathsKey = useMemo(
-    () => collectDirectoryPaths(treeNodes).join("\u0000"),
-    [treeNodes],
-  );
-  const allDirectoryExpansionState = useMemo(
-    () =>
-      buildDirectoryExpansionState(
-        directoryPathsKey ? directoryPathsKey.split("\u0000") : [],
-        allDirectoriesExpanded,
-      ),
-    [allDirectoriesExpanded, directoryPathsKey],
-  );
-  const [expandedDirectories, setExpandedDirectories] = useState<Record<string, boolean>>(() =>
-    buildDirectoryExpansionState(directoryPathsKey ? directoryPathsKey.split("\u0000") : [], true),
-  );
-  useEffect(() => {
-    setExpandedDirectories(allDirectoryExpansionState);
-  }, [allDirectoryExpansionState]);
+function formatWorkEntryMeta(entry: WorkLogEntry): string {
+  return formatTimestamp(entry.createdAt);
+}
 
-  const toggleDirectory = useCallback((pathValue: string, fallbackExpanded: boolean) => {
-    setExpandedDirectories((current) => ({
-      ...current,
-      [pathValue]: !(current[pathValue] ?? fallbackExpanded),
-    }));
-  }, []);
+function groupRenderableWorkArtifacts(entries: ReadonlyArray<WorkLogEntry>): RenderableWorkArtifact[] {
+  const grouped: RenderableWorkArtifact[] = [];
 
-  const renderTreeNode = (node: TurnDiffTreeNode, depth: number) => {
-    const leftPadding = 8 + depth * 14;
-    if (node.kind === "directory") {
-      const isExpanded = expandedDirectories[node.path] ?? depth === 0;
-      return (
-        <div key={`dir:${node.path}`}>
-          <button
-            type="button"
-            className="group flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left hover:bg-background/80"
-            style={{ paddingLeft: `${leftPadding}px` }}
-            onClick={() => toggleDirectory(node.path, depth === 0)}
-          >
-            <ChevronRightIcon
-              aria-hidden="true"
-              className={cn(
-                "size-3.5 shrink-0 text-muted-foreground/70 transition-transform group-hover:text-foreground/80",
-                isExpanded && "rotate-90",
-              )}
-            />
-            {isExpanded ? (
-              <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/75" />
-            ) : (
-              <FolderClosedIcon className="size-3.5 shrink-0 text-muted-foreground/75" />
-            )}
-            <span className="truncate font-mono text-[11px] text-muted-foreground/90 group-hover:text-foreground/90">
-              {node.name}
-            </span>
-            {hasNonZeroStat(node.stat) && (
-              <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums">
-                <DiffStatLabel additions={node.stat.additions} deletions={node.stat.deletions} />
-              </span>
-            )}
-          </button>
-          {isExpanded && (
-            <div className="space-y-0.5">
-              {node.children.map((childNode) => renderTreeNode(childNode, depth + 1))}
-            </div>
-          )}
-        </div>
-      );
+  for (const entry of entries) {
+    const variant = resolveWorkArtifactVariant(entry);
+    const previous = grouped.at(-1);
+    if (
+      variant === "command" &&
+      previous?.kind === "command-group"
+    ) {
+      previous.entries.push(entry);
+      continue;
     }
 
-    return (
-      <button
-        key={`file:${node.path}`}
-        type="button"
-        className="group flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left hover:bg-background/80"
-        style={{ paddingLeft: `${leftPadding}px` }}
-        onClick={() => onOpenTurnDiff(turnId, node.path)}
-      >
-        <span aria-hidden="true" className="size-3.5 shrink-0" />
-        <VscodeEntryIcon
-          pathValue={node.path}
-          kind="file"
-          theme={resolvedTheme}
-          className="size-3.5 text-muted-foreground/70"
-        />
-        <span className="truncate font-mono text-[11px] text-muted-foreground/80 group-hover:text-foreground/90">
-          {node.name}
-        </span>
-        {node.stat && (
-          <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums">
-            <DiffStatLabel additions={node.stat.additions} deletions={node.stat.deletions} />
-          </span>
-        )}
-      </button>
-    );
-  };
+    if (variant === "command") {
+      grouped.push({ kind: "command-group", entries: [entry] });
+      continue;
+    }
 
-  return <div className="space-y-0.5">{treeNodes.map((node) => renderTreeNode(node, 0))}</div>;
+    grouped.push({ kind: "entry", entry });
+  }
+
+  return grouped;
+}
+
+const ArtifactSectionLabel = memo(function ArtifactSectionLabel(props: {
+  icon: LucideIcon;
+  label: string;
+}) {
+  const { icon: Icon, label } = props;
+  return (
+    <div className="flex items-center gap-3">
+      <Icon className="size-4 text-muted-foreground" />
+      <span className="font-mono text-xs tracking-widest text-muted-foreground uppercase">
+        {label}
+      </span>
+    </div>
+  );
+});
+
+function ArtifactCardShell(props: { children: ReactNode; footer?: ReactNode; className?: string }) {
+  const { children, footer, className } = props;
+  return (
+    <div
+      className={cn(
+        "overflow-hidden rounded-lg border border-border-subtle bg-surface shadow-none ring-0",
+        className,
+      )}
+    >
+      {children}
+      {footer}
+    </div>
+  );
+}
+
+const ArtifactFileChangesCard = memo(function ArtifactFileChangesCard(props: {
+  files: ReadonlyArray<ArtifactFileRow>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const hasOverflow = props.files.length > MAX_VISIBLE_ARTIFACT_FILE_ROWS;
+  const visibleFiles =
+    hasOverflow && !expanded ? props.files.slice(0, MAX_VISIBLE_ARTIFACT_FILE_ROWS) : props.files;
+
+  return (
+    <ArtifactCardShell
+      footer={
+        hasOverflow ? (
+          <button
+            type="button"
+            className="flex w-full items-center justify-center gap-1 border-t border-border-subtle bg-foreground/5 px-4 py-2 text-[11px] font-bold tracking-wider text-primary uppercase transition-colors hover:text-primary/80"
+            onClick={() => setExpanded((current) => !current)}
+          >
+            <span>
+              {expanded ? "Show Less" : `+${props.files.length - MAX_VISIBLE_ARTIFACT_FILE_ROWS} More`}
+            </span>
+            <ChevronDownIcon className={cn("size-3", expanded && "rotate-180")} />
+          </button>
+        ) : undefined
+      }
+    >
+      <div className="divide-y divide-foreground/5">
+        {visibleFiles.map((file) => {
+          const rowContent = (
+            <>
+              <div className="flex min-w-0 items-center gap-3">
+                <FileIcon className="size-4 shrink-0 text-foreground/70" />
+                <span className="truncate font-mono text-foreground/80">{file.path}</span>
+              </div>
+              {typeof file.additions === "number" || typeof file.deletions === "number" ? (
+                <div className="flex shrink-0 items-center gap-2 font-mono">
+                  {typeof file.additions === "number" ? (
+                    <span className="text-success">+{file.additions}</span>
+                  ) : null}
+                  {typeof file.deletions === "number" ? (
+                    <span className="text-destructive">-{file.deletions}</span>
+                  ) : null}
+                </div>
+              ) : null}
+            </>
+          );
+
+          if (file.onClick) {
+            return (
+              <button
+                key={file.path}
+                type="button"
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-xs transition-colors hover:bg-foreground/5"
+                onClick={file.onClick}
+              >
+                {rowContent}
+              </button>
+            );
+          }
+
+          return (
+            <div key={file.path} className="flex items-center justify-between gap-3 px-4 py-3 text-xs">
+              {rowContent}
+            </div>
+          );
+        })}
+      </div>
+    </ArtifactCardShell>
+  );
+});
+
+const ArtifactLogCard = memo(function ArtifactLogCard(props: {
+  title: string;
+  meta?: string | null;
+  children: ReactNode;
+}) {
+  const { title, meta, children } = props;
+  return (
+    <ArtifactCardShell className="bg-popover">
+      <div className="flex items-center justify-between gap-3 border-b border-border-subtle bg-foreground/5 px-4 py-2">
+        <span className="font-mono text-[11px] text-foreground/70">{title}</span>
+        {meta ? <span className="font-mono text-[11px] text-muted-foreground">{meta}</span> : null}
+      </div>
+      <div className="flex flex-col gap-3 px-4 py-3 text-sm text-foreground/80">{children}</div>
+    </ArtifactCardShell>
+  );
+});
+
+const ArtifactCommandGroupCard = memo(function ArtifactCommandGroupCard(props: {
+  entries: ReadonlyArray<WorkLogEntry>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const hasOverflow = props.entries.length > MAX_VISIBLE_COMMAND_GROUP_ROWS;
+  const visibleEntries =
+    hasOverflow && !expanded ? props.entries.slice(0, MAX_VISIBLE_COMMAND_GROUP_ROWS) : props.entries;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <ArtifactSectionLabel
+        icon={TerminalIcon}
+        label={props.entries.length > 1 ? `Command Runs (${props.entries.length})` : "Command Run"}
+      />
+      <ArtifactCardShell
+        className="bg-popover"
+        footer={
+          hasOverflow ? (
+            <button
+              type="button"
+              className="flex w-full items-center justify-center gap-1 border-t border-border-subtle bg-foreground/5 px-4 py-2 text-[11px] font-bold tracking-wider text-primary uppercase transition-colors hover:text-primary/80"
+              onClick={() => setExpanded((current) => !current)}
+            >
+              <span>
+                {expanded ? "Show Less" : `+${props.entries.length - MAX_VISIBLE_COMMAND_GROUP_ROWS} More`}
+              </span>
+              <ChevronDownIcon className={cn("size-3", expanded && "rotate-180")} />
+            </button>
+          ) : undefined
+        }
+      >
+        <div className="divide-y divide-foreground/5 font-mono text-[12px] text-foreground/80">
+          {visibleEntries.map((entry) => (
+            <div key={entry.id} className="flex items-center justify-between gap-3 px-4 py-3">
+              <span className="min-w-0 flex-1 truncate">{entry.command ?? entry.label}</span>
+              <span className="shrink-0 text-[11px] text-muted-foreground">
+                {formatWorkEntryMeta(entry)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </ArtifactCardShell>
+    </div>
+  );
+});
+
+const WorkEntryArtifacts = memo(function WorkEntryArtifacts(props: { entry: WorkLogEntry }) {
+  const { entry } = props;
+  const variant = resolveWorkArtifactVariant(entry);
+  const timeLabel = formatWorkEntryMeta(entry);
+  const sections: ReactNode[] = [];
+
+  if (entry.toolCall && variant !== "fileChanges") {
+    const { label, Icon } = artifactSectionDefinition(variant);
+    sections.push(
+      <div key="tool" className="flex flex-col gap-3">
+        <ArtifactSectionLabel icon={Icon} label={label} />
+        <ArtifactLogCard title={entry.toolCall.name} meta={timeLabel}>
+          {entry.label !== entry.toolCall.name ? (
+            <p className="text-sm leading-relaxed text-foreground/88">{entry.label}</p>
+          ) : null}
+          {entry.toolCall.input ? (
+            <div className="border-t border-foreground/5 pt-3">
+              <p className="mb-1 font-mono text-[11px] uppercase tracking-widest text-muted-foreground/70">
+                Input
+              </p>
+              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/72">
+                {entry.toolCall.input}
+              </p>
+            </div>
+          ) : null}
+          {entry.toolCall.output ? (
+            <div className="border-t border-foreground/5 pt-3">
+              <p className="mb-1 font-mono text-[11px] uppercase tracking-widest text-muted-foreground/70">
+                Output
+              </p>
+              <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-muted-foreground/85">
+                {entry.toolCall.output}
+              </pre>
+            </div>
+          ) : null}
+          {entry.detail && entry.detail !== entry.toolCall.input ? (
+            <p className="border-t border-foreground/5 pt-3 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/72">
+              {entry.detail}
+            </p>
+          ) : null}
+        </ArtifactLogCard>
+      </div>,
+    );
+  }
+
+  if ((entry.changedFiles?.length ?? 0) > 0) {
+    sections.push(
+      <div key="files" className="flex flex-col gap-3">
+        <ArtifactSectionLabel icon={FileIcon} label="File Changes" />
+        <ArtifactFileChangesCard files={entry.changedFiles!} />
+      </div>,
+    );
+  }
+
+  if (sections.length === 0) {
+    const { label, Icon } = artifactSectionDefinition("work");
+    sections.push(
+      <div key="work" className="flex flex-col gap-3">
+        <ArtifactSectionLabel icon={Icon} label={label} />
+        <ArtifactLogCard title={entry.label}>
+          {entry.detail ? (
+            <p
+              className={cn(
+                "whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/72",
+                entry.tone === "thinking" && "font-mono text-[12px]",
+              )}
+            >
+              {entry.detail}
+            </p>
+          ) : (
+            <p className={cn("text-sm leading-relaxed", workToneClass(entry.tone))}>{entry.label}</p>
+          )}
+        </ArtifactLogCard>
+      </div>,
+    );
+  }
+
+  return <div className="flex flex-col gap-4">{sections}</div>;
 });
 
 const ProposedPlanCard = memo(function ProposedPlanCard({
@@ -4853,7 +5056,6 @@ interface MessagesTimelineProps {
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   markdownCwd: string | undefined;
-  resolvedTheme: "light" | "dark";
   workspaceRoot: string | undefined;
 }
 
@@ -4907,7 +5109,6 @@ const MessagesTimeline = memo(function MessagesTimeline({
   isRevertingCheckpoint,
   onImageExpand,
   markdownCwd,
-  resolvedTheme,
   workspaceRoot,
 }: MessagesTimelineProps) {
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
@@ -5092,15 +5293,6 @@ const MessagesTimeline = memo(function MessagesTimeline({
 
   const virtualRows = rowVirtualizer.getVirtualItems();
   const nonVirtualizedRows = rows.slice(virtualizedRowCount);
-  const [allDirectoriesExpandedByTurnId, setAllDirectoriesExpandedByTurnId] = useState<
-    Record<string, boolean>
-  >({});
-  const onToggleAllDirectories = useCallback((turnId: TurnId) => {
-    setAllDirectoriesExpandedByTurnId((current) => ({
-      ...current,
-      [turnId]: !(current[turnId] ?? true),
-    }));
-  }, []);
 
   const renderRowContent = (row: TimelineRow) => (
     <div
@@ -5120,141 +5312,34 @@ const MessagesTimeline = memo(function MessagesTimeline({
               ? groupedEntries.slice(-MAX_VISIBLE_WORK_LOG_ENTRIES)
               : groupedEntries;
           const hiddenCount = groupedEntries.length - visibleEntries.length;
-          const onlyToolEntries = groupedEntries.every((entry) => entry.tone === "tool");
-          const groupLabel = onlyToolEntries
-            ? groupedEntries.length === 1
-              ? "Tool call"
-              : `Tool calls (${groupedEntries.length})`
-            : groupedEntries.length === 1
-              ? "Work event"
-              : `Work log (${groupedEntries.length})`;
+          const renderableArtifacts = groupRenderableWorkArtifacts(visibleEntries);
 
           return (
-            <div className="rounded-lg border border-border/80 bg-card/45 px-3 py-2">
-              <div className="mb-1.5 flex items-center justify-between gap-3">
-                <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/65">
-                  {groupLabel}
-                </p>
-                {hasOverflow && (
-                  <button
-                    type="button"
-                    className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/55 transition-colors duration-150 hover:text-muted-foreground/80"
-                    onClick={() => onToggleWorkGroup(groupId)}
-                  >
-                    {isExpanded ? "Show less" : `Show ${hiddenCount} more`}
-                  </button>
+            <div className="px-1 py-0.5">
+              <div className="flex flex-col gap-4">
+                {renderableArtifacts.map((artifact, index) =>
+                  artifact.kind === "command-group" ? (
+                    <ArtifactCommandGroupCard
+                      key={`work-command-group:${artifact.entries[0]?.id ?? index}`}
+                      entries={artifact.entries}
+                    />
+                  ) : (
+                    <WorkEntryArtifacts key={`work-row:${artifact.entry.id}`} entry={artifact.entry} />
+                  ),
                 )}
               </div>
-              <div className="space-y-1">
-                {visibleEntries.map((workEntry) => (
-                  <div key={`work-row:${workEntry.id}`} className="flex items-start gap-2 py-0.5">
-                    <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/30" />
-                    <div className="min-w-0 flex-1 py-[2px]">
-                      <p className={`text-[11px] leading-relaxed ${workToneClass(workEntry.tone)}`}>
-                        {workEntry.label}
-                      </p>
-                      {workEntry.toolCall ? (
-                        <div className="mt-1 rounded-md border border-border/70 bg-background/75 px-2 py-2">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="rounded-md border border-border/60 bg-background/80 px-1.5 py-0.5 font-mono text-[10px] text-foreground/85">
-                              {workEntry.toolCall.name}
-                            </span>
-                            {formatWorkToolType(workEntry.toolCall.itemType) ? (
-                              <span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground/60">
-                                {formatWorkToolType(workEntry.toolCall.itemType)}
-                              </span>
-                            ) : null}
-                            {formatWorkToolStatus(workEntry.toolCall.status) ? (
-                              <span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground/60">
-                                {formatWorkToolStatus(workEntry.toolCall.status)}
-                              </span>
-                            ) : null}
-                          </div>
-                          {workEntry.command ? (
-                            <pre className="mt-2 overflow-x-auto rounded-md border border-border/70 bg-background/85 px-2 py-1 font-mono text-[11px] leading-relaxed text-foreground/80">
-                              {workEntry.command}
-                            </pre>
-                          ) : null}
-                          {workEntry.toolCall.input ? (
-                            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground/75">
-                              {workEntry.toolCall.input}
-                            </p>
-                          ) : null}
-                          {workEntry.changedFiles && workEntry.changedFiles.length > 0 ? (
-                            <div className="mt-2 flex flex-wrap gap-1">
-                              {workEntry.changedFiles.slice(0, 6).map((filePath) => (
-                                <span
-                                  key={`${workEntry.id}:${filePath}`}
-                                  className="rounded-md border border-border/70 bg-background/65 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/85"
-                                  title={filePath}
-                                >
-                                  {filePath}
-                                </span>
-                              ))}
-                              {workEntry.changedFiles.length > 6 ? (
-                                <span className="px-1 text-[10px] text-muted-foreground/65">
-                                  +{workEntry.changedFiles.length - 6} more
-                                </span>
-                              ) : null}
-                            </div>
-                          ) : null}
-                          {workEntry.toolCall.output ? (
-                            <pre className="mt-2 overflow-x-auto rounded-md border border-border/60 bg-background/70 px-2 py-1 font-mono text-[11px] leading-relaxed text-muted-foreground/85">
-                              {workEntry.toolCall.output}
-                            </pre>
-                          ) : null}
-                          {workEntry.detail &&
-                          (!workEntry.command || workEntry.detail !== workEntry.command) ? (
-                            <p
-                              className={`mt-2 text-[11px] leading-relaxed text-muted-foreground/75 ${
-                                workEntry.tone === "thinking" ? "whitespace-pre-wrap" : ""
-                              }`}
-                              title={workEntry.detail}
-                            >
-                              {workEntry.detail}
-                            </p>
-                          ) : null}
-                        </div>
-                      ) : (
-                        <>
-                          {workEntry.command && (
-                            <pre className="mt-1 overflow-x-auto rounded-md border border-border/70 bg-background/80 px-2 py-1 font-mono text-[11px] leading-relaxed text-foreground/80">
-                              {workEntry.command}
-                            </pre>
-                          )}
-                          {workEntry.changedFiles && workEntry.changedFiles.length > 0 && (
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              {workEntry.changedFiles.slice(0, 6).map((filePath) => (
-                                <span
-                                  key={`${workEntry.id}:${filePath}`}
-                                  className="rounded-md border border-border/70 bg-background/65 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/85"
-                                  title={filePath}
-                                >
-                                  {filePath}
-                                </span>
-                              ))}
-                              {workEntry.changedFiles.length > 6 && (
-                                <span className="px-1 text-[10px] text-muted-foreground/65">
-                                  +{workEntry.changedFiles.length - 6} more
-                                </span>
-                              )}
-                            </div>
-                          )}
-                          {workEntry.detail &&
-                            (!workEntry.command || workEntry.detail !== workEntry.command) && (
-                              <p
-                                className="mt-1 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-muted-foreground/75"
-                                title={workEntry.detail}
-                              >
-                                {workEntry.detail}
-                              </p>
-                            )}
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              {hasOverflow && (
+                <div className="mt-3 flex justify-center">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-primary transition-colors hover:text-primary/80"
+                    onClick={() => onToggleWorkGroup(groupId)}
+                  >
+                    <span>{isExpanded ? "Show Less" : `+${hiddenCount} More`}</span>
+                    <ChevronDownIcon className={cn("size-3", isExpanded && "rotate-180")} />
+                  </button>
+                </div>
+              )}
             </div>
           );
         })()}
@@ -5341,18 +5426,15 @@ const MessagesTimeline = memo(function MessagesTimeline({
         row.message.role === "assistant" &&
         (() => {
           const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
+          const responseMeta = row.showCompletionDivider
+            ? completionSummary
+              ? `Response - ${completionSummary}`
+              : "Response"
+            : null;
           return (
-            <>
-              {row.showCompletionDivider && (
-                <div className="my-3 flex items-center gap-3">
-                  <span className="h-px flex-1 bg-border" />
-                  <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/80">
-                    {completionSummary ? `Response • ${completionSummary}` : "Response"}
-                  </span>
-                  <span className="h-px flex-1 bg-border" />
-                </div>
-              )}
-              <div className="flex items-start gap-4 px-1 py-0.5">
+            <div className="flex flex-col gap-3 px-1 py-0.5">
+              {responseMeta ? <ArtifactSectionLabel icon={HistoryIcon} label={responseMeta} /> : null}
+              <div className="flex items-start gap-4">
                 <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded bg-primary text-primary-foreground">
                   <BotIcon className="size-4" />
                 </div>
@@ -5368,52 +5450,26 @@ const MessagesTimeline = memo(function MessagesTimeline({
                     const checkpointFiles = turnSummary.files;
                     if (checkpointFiles.length === 0) return null;
                     const summaryStat = summarizeTurnDiffStats(checkpointFiles);
-                    const changedFileCountLabel = String(checkpointFiles.length);
-                    const allDirectoriesExpanded =
-                      allDirectoriesExpandedByTurnId[turnSummary.turnId] ?? true;
                     return (
-                      <div className="mt-2 rounded-lg border border-border/80 bg-card/45 p-2.5">
-                        <div className="mb-1.5 flex items-center justify-between gap-2">
-                          <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/65">
-                            <span>Changed files ({changedFileCountLabel})</span>
-                            {hasNonZeroStat(summaryStat) && (
-                              <>
-                                <span className="mx-1">•</span>
-                                <DiffStatLabel
-                                  additions={summaryStat.additions}
-                                  deletions={summaryStat.deletions}
-                                />
-                              </>
-                            )}
-                          </p>
-                          <div className="flex items-center gap-1.5">
-                            <Button
-                              type="button"
-                              size="xs"
-                              variant="outline"
-                              onClick={() => onToggleAllDirectories(turnSummary.turnId)}
-                            >
-                              {allDirectoriesExpanded ? "Collapse all" : "Expand all"}
-                            </Button>
-                            <Button
-                              type="button"
-                              size="xs"
-                              variant="outline"
-                              onClick={() =>
-                                onOpenTurnDiff(turnSummary.turnId, checkpointFiles[0]?.path)
-                              }
-                            >
-                              View diff
-                            </Button>
-                          </div>
+                      <div className="mt-5 flex flex-col gap-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <ArtifactSectionLabel icon={FileIcon} label="File Changes" />
+                          {hasNonZeroStat(summaryStat) ? (
+                            <span className="font-mono text-[11px]">
+                              <DiffStatLabel
+                                additions={summaryStat.additions}
+                                deletions={summaryStat.deletions}
+                              />
+                            </span>
+                          ) : null}
                         </div>
-                        <ChangedFilesTree
-                          key={`changed-files-tree:${turnSummary.turnId}`}
-                          turnId={turnSummary.turnId}
-                          files={checkpointFiles}
-                          allDirectoriesExpanded={allDirectoriesExpanded}
-                          resolvedTheme={resolvedTheme}
-                          onOpenTurnDiff={onOpenTurnDiff}
+                        <ArtifactFileChangesCard
+                          files={checkpointFiles.map((file) => ({
+                            path: file.path,
+                            additions: file.additions,
+                            deletions: file.deletions,
+                            onClick: () => onOpenTurnDiff(turnSummary.turnId, file.path),
+                          }))}
                         />
                       </div>
                     );
@@ -5428,7 +5484,7 @@ const MessagesTimeline = memo(function MessagesTimeline({
                   </p>
                 </div>
               </div>
-            </>
+            </div>
           );
         })()}
 
