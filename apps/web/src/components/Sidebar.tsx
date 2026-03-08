@@ -50,7 +50,6 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarHeader,
-  SidebarMenuAction,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -1023,19 +1022,14 @@ export default function Sidebar() {
                       <Tooltip>
                         <TooltipTrigger
                           render={
-                            <SidebarMenuAction
-                              render={
-                                <button
-                                  type="button"
-                                  aria-label={`Create new thread in ${project.name}`}
-                                />
-                              }
-                              showOnHover
+                            <button
+                              type="button"
+                              aria-label={`Create new thread in ${project.name}`}
                               className={cn(
-                                "top-1 right-1 size-5 rounded p-0 text-muted-foreground/70",
-                                "hover:bg-accent/80 hover:text-foreground",
-                                isProjectActive &&
-                                  "bg-primary/10 text-primary hover:bg-primary/14 hover:text-primary",
+                                "absolute top-1/2 right-1 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded opacity-0 transition-all duration-150 group-hover/project-header:opacity-100 focus-visible:opacity-100",
+                                isProjectActive
+                                  ? "text-primary/80 hover:bg-primary/10 hover:text-primary"
+                                  : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground/80",
                               )}
                               onClick={(event) => {
                                 event.preventDefault();
@@ -1044,7 +1038,7 @@ export default function Sidebar() {
                               }}
                             >
                               <SquarePenIcon className="size-3.5" />
-                            </SidebarMenuAction>
+                            </button>
                           }
                         />
                         <TooltipPopup side="top">
