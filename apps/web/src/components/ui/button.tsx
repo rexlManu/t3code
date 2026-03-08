@@ -26,6 +26,8 @@ const buttonVariants = cva(
           "size-7 rounded-md before:rounded-[calc(var(--radius-md)-1px)] sm:size-6 not-in-data-[slot=input-group]:[&_svg:not([class*='size-'])]:size-4 sm:not-in-data-[slot=input-group]:[&_svg:not([class*='size-'])]:size-3.5",
         lg: "h-10 px-[calc(--spacing(3.5)-1px)] sm:h-9",
         sm: "h-8 gap-1.5 px-[calc(--spacing(2.5)-1px)] sm:h-7",
+        toolbar: "h-9 gap-2 rounded px-3 text-sm font-medium before:rounded-[calc(var(--radius)-1px)] sm:h-9",
+        "toolbar-icon": "size-9 rounded before:rounded-[calc(var(--radius)-1px)] sm:size-9",
         xl: "h-11 px-[calc(--spacing(4)-1px)] text-lg sm:h-10 sm:text-base [&_svg:not([class*='size-'])]:size-5 sm:[&_svg:not([class*='size-'])]:size-4.5",
         xs: "h-7 gap-1 rounded-md px-[calc(--spacing(2)-1px)] text-sm before:rounded-[calc(var(--radius-md)-1px)] sm:h-6 sm:text-xs [&_svg:not([class*='size-'])]:size-4 sm:[&_svg:not([class*='size-'])]:size-3.5",
       },
@@ -41,6 +43,10 @@ const buttonVariants = cva(
         link: "border-transparent underline-offset-4 [:hover,[data-pressed]]:underline",
         outline:
           "border-input bg-popover not-dark:bg-clip-padding text-foreground shadow-xs/5 not-disabled:not-active:not-data-pressed:before:shadow-[0_1px_--theme(--color-black/4%)] dark:bg-input/32 dark:not-disabled:before:shadow-[0_-1px_--theme(--color-white/2%)] dark:not-disabled:not-active:not-data-pressed:before:shadow-[0_-1px_--theme(--color-white/6%)] [:disabled,:active,[data-pressed]]:shadow-none [:hover,[data-pressed]]:bg-accent/50 dark:[:hover,[data-pressed]]:bg-input/64",
+        toolbar:
+          "border-foreground/10 bg-foreground/5 text-foreground/90 shadow-none before:hidden [:hover,[data-pressed]]:bg-foreground/10 [:hover,[data-pressed]]:text-foreground dark:border-foreground/10 dark:bg-foreground/5 dark:text-foreground/90 dark:[:hover,[data-pressed]]:bg-foreground/10",
+        "toolbar-primary":
+          "border-primary/45 bg-primary text-primary-foreground shadow-[0_10px_24px_-14px_color-mix(in_srgb,var(--primary)_85%,transparent)] before:hidden [:hover,[data-pressed]]:bg-primary/92 dark:border-primary/45",
         secondary:
           "border-transparent bg-secondary text-secondary-foreground [:active,[data-pressed]]:bg-secondary/80 [:hover,[data-pressed]]:bg-secondary/90",
       },

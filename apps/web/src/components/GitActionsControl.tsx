@@ -583,8 +583,8 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
     <>
       {!isRepo ? (
         <Button
-          variant="outline"
-          size="xs"
+          variant="toolbar-primary"
+          size="toolbar"
           disabled={initMutation.isPending}
           onClick={() => initMutation.mutate()}
         >
@@ -599,16 +599,14 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
                 render={
                   <Button
                     aria-disabled="true"
-                    className="cursor-not-allowed rounded-e-none border-e-0 opacity-64 before:rounded-e-none"
-                    size="xs"
-                    variant="outline"
+                    className="cursor-not-allowed"
+                    size="toolbar"
+                    variant="toolbar-primary"
                   />
                 }
               >
                 <GitQuickActionIcon quickAction={quickAction} />
-                <span className="sr-only @sm/header-actions:not-sr-only @sm/header-actions:ml-0.5">
-                  {quickAction.label}
-                </span>
+                <span>{quickAction.label}</span>
               </PopoverTrigger>
               <PopoverPopup tooltipStyle side="bottom" align="start">
                 {quickActionDisabledReason}
@@ -616,25 +614,26 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
             </Popover>
           ) : (
             <Button
-              variant="outline"
-              size="xs"
+              variant="toolbar-primary"
+              size="toolbar"
+              className="disabled:cursor-not-allowed disabled:opacity-100"
               disabled={isGitActionRunning || quickAction.disabled}
               onClick={runQuickAction}
             >
               <GitQuickActionIcon quickAction={quickAction} />
-              <span className="sr-only @sm/header-actions:not-sr-only @sm/header-actions:ml-0.5">
-                {quickAction.label}
-              </span>
+              <span>{quickAction.label}</span>
             </Button>
           )}
-          <GroupSeparator className="hidden @sm/header-actions:block" />
+          <GroupSeparator className="hidden bg-primary-foreground/15 @sm/header-actions:block" />
           <Menu
             onOpenChange={(open) => {
               if (open) void invalidateGitQueries(queryClient);
             }}
           >
             <MenuTrigger
-              render={<Button aria-label="Git action options" size="icon-xs" variant="outline" />}
+              render={
+                <Button aria-label="Git action options" size="toolbar-icon" variant="toolbar-primary" />
+              }
               disabled={isGitActionRunning}
             >
               <ChevronDownIcon aria-hidden="true" className="size-4" />

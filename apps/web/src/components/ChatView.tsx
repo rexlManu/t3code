@@ -3480,7 +3480,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
-      <header className="border-b border-border px-3 py-2 sm:px-5 sm:py-3">
+      <header className="border-b border-border bg-foreground/[0.015] px-3 py-2 sm:px-5 sm:py-3 dark:bg-surface/30">
         <ChatHeader
           activeThreadId={activeThread.id}
           activeThreadTitle={activeThread.title}
@@ -4135,8 +4135,8 @@ const ChatHeaderActions = memo(function ChatHeaderActions({
               pressed={diffOpen}
               onPressedChange={onToggleDiff}
               aria-label="Toggle diff panel"
-              variant="outline"
-              size="xs"
+              variant="toolbar"
+              size="toolbar"
               disabled={!isGitRepo}
             >
               <DiffIcon className="size-3" />
@@ -4176,18 +4176,23 @@ const ChatHeader = memo(function ChatHeader({
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2">
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
-        <SidebarTrigger className="size-7 shrink-0 md:hidden" />
-        <h2
-          className="min-w-0 shrink truncate text-sm font-medium text-foreground"
-          title={activeThreadTitle}
-        >
-          {activeThreadTitle}
-        </h2>
-        {activeProjectName && (
-          <Badge variant="outline" className="max-w-28 shrink-0 truncate">
-            {activeProjectName}
-          </Badge>
-        )}
+        <SidebarTrigger className="size-7 shrink-0 rounded md:hidden" />
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-sm">
+          {activeProjectName ? (
+            <>
+              <span className="shrink-0 truncate text-[14px] font-medium text-muted-foreground">
+                {activeProjectName}
+              </span>
+              <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground/70" />
+            </>
+          ) : null}
+          <h2
+            className="min-w-0 shrink truncate text-[16px] font-medium text-foreground"
+            title={activeThreadTitle}
+          >
+            {activeThreadTitle}
+          </h2>
+        </div>
         {activeProjectName && !isGitRepo && (
           <Badge variant="outline" className="shrink-0 text-[10px] text-amber-700">
             No Git
@@ -6039,19 +6044,17 @@ const OpenInPicker = memo(function OpenInPicker({
   return (
     <Group aria-label="Subscription actions">
       <Button
-        size="xs"
-        variant="outline"
+        size="toolbar"
+        variant="toolbar"
         disabled={!effectiveEditor || !openInCwd}
         onClick={() => openInEditor(effectiveEditor)}
       >
         {primaryOption?.Icon && <primaryOption.Icon aria-hidden="true" className="size-3.5" />}
-        <span className="sr-only @sm/header-actions:not-sr-only @sm/header-actions:ml-0.5">
-          Open
-        </span>
+        <span>Open</span>
       </Button>
-      <GroupSeparator className="hidden @sm/header-actions:block" />
+      <GroupSeparator className="hidden bg-foreground/10 @sm/header-actions:block" />
       <Menu>
-        <MenuTrigger render={<Button aria-label="Copy options" size="icon-xs" variant="outline" />}>
+        <MenuTrigger render={<Button aria-label="Open options" size="toolbar-icon" variant="toolbar" />}>
           <ChevronDownIcon aria-hidden="true" className="size-4" />
         </MenuTrigger>
         <MenuPopup align="end">

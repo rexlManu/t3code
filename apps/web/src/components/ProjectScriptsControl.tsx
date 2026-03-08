@@ -252,8 +252,8 @@ export default function ProjectScriptsControl({
       {primaryScript ? (
         <Group aria-label="Project scripts">
           <Button
-            size="xs"
-            variant="outline"
+            size="toolbar"
+            variant="toolbar"
             onClick={() => onRunScript(primaryScript)}
             title={`Run ${primaryScript.name}`}
           >
@@ -262,10 +262,12 @@ export default function ProjectScriptsControl({
               {primaryScript.name}
             </span>
           </Button>
-          <GroupSeparator className="hidden @sm/header-actions:block" />
+          <GroupSeparator className="hidden bg-foreground/10 @sm/header-actions:block" />
           <Menu highlightItemOnHover={false}>
             <MenuTrigger
-              render={<Button size="icon-xs" variant="outline" aria-label="Script actions" />}
+              render={
+                <Button size="toolbar-icon" variant="toolbar" aria-label="Script actions" />
+              }
             >
               <ChevronDownIcon className="size-4" />
             </MenuTrigger>
@@ -321,11 +323,9 @@ export default function ProjectScriptsControl({
           </Menu>
         </Group>
       ) : (
-        <Button size="xs" variant="outline" onClick={openAddDialog} title="Add action">
+        <Button size="toolbar" variant="toolbar" onClick={openAddDialog} title="Add action">
           <PlusIcon className="size-3.5" />
-          <span className="sr-only @sm/header-actions:not-sr-only @sm/header-actions:ml-0.5">
-            Add action
-          </span>
+          <span>Add Action</span>
         </Button>
       )}
 
