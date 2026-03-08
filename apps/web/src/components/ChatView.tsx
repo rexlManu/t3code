@@ -4097,7 +4097,7 @@ interface ChatHeaderProps {
   diffToggleShortcutLabel: string | null;
   gitCwd: string | null;
   diffOpen: boolean;
-  iconOnlyActions?: boolean;
+  iconOnlyActions?: boolean | undefined;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
@@ -4626,9 +4626,9 @@ const DiffStatLabel = memo(function DiffStatLabel(props: {
 
 type ArtifactFileRow = {
   path: string;
-  additions?: number;
-  deletions?: number;
-  onClick?: () => void;
+  additions?: number | undefined;
+  deletions?: number | undefined;
+  onClick?: (() => void) | undefined;
 };
 
 type WorkArtifactVariant =

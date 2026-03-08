@@ -1,10 +1,10 @@
 import {
-  CircleIcon,
   Columns2Icon,
   CopyIcon,
   FolderIcon,
   FolderOpenIcon,
   GitPullRequestIcon,
+  MailIcon,
   PlusIcon,
   RocketIcon,
   SquarePenIcon,
@@ -94,28 +94,28 @@ type SidebarContextMenuState =
   | {
       kind: "thread";
       id: ThreadId;
-      title: string;
       position: { x: number; y: number };
     }
   | {
       kind: "project";
       id: ProjectId;
-      title: string;
       position: { x: number; y: number };
     };
 
 const THREAD_CONTEXT_MENU_ENTRIES: readonly SidebarContextMenuEntry<ThreadContextMenuAction>[] = [
+  { type: "section", label: "Actions" },
   { type: "item", id: "rename", label: "Rename thread", icon: SquarePenIcon },
-  { type: "item", id: "mark-unread", label: "Mark unread", icon: CircleIcon },
+  { type: "item", id: "mark-unread", label: "Mark as unread", icon: MailIcon },
+  { type: "section", label: "View & share" },
   { type: "item", id: "open-in-split", label: "Open in split view", icon: Columns2Icon },
-  { type: "separator" },
-  { type: "item", id: "copy-thread-id", label: "Copy Thread ID", icon: CopyIcon },
-  { type: "separator" },
-  { type: "item", id: "delete", label: "Delete", icon: Trash2Icon, destructive: true },
+  { type: "item", id: "copy-thread-id", label: "Copy thread ID", icon: CopyIcon },
+  { type: "section", label: "More" },
+  { type: "item", id: "delete", label: "Delete", icon: Trash2Icon },
 ];
 
 const PROJECT_CONTEXT_MENU_ENTRIES: readonly SidebarContextMenuEntry<ProjectContextMenuAction>[] = [
-  { type: "item", id: "delete", label: "Delete project", icon: Trash2Icon, destructive: true },
+  { type: "section", label: "More" },
+  { type: "item", id: "delete", label: "Delete", icon: Trash2Icon },
 ];
 
 async function copyTextToClipboard(text: string): Promise<void> {
@@ -728,7 +728,6 @@ export default function Sidebar() {
       setContextMenuState({
         kind: "thread",
         id: threadId,
-        title: thread.title.trim() || "Untitled thread",
         position,
       });
     },
@@ -742,7 +741,6 @@ export default function Sidebar() {
       setContextMenuState({
         kind: "project",
         id: projectId,
-        title: project.name,
         position,
       });
     },
@@ -1367,8 +1365,6 @@ export default function Sidebar() {
         onSelect={handleSidebarContextMenuSelect}
         open={contextMenuState !== null}
         position={contextMenuState?.position ?? null}
-        sectionLabel={contextMenuState?.kind === "thread" ? "Thread actions" : "Project actions"}
-        title={contextMenuState?.title ?? ""}
       />
     </>
   );

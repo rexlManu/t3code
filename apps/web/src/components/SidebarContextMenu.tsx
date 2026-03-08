@@ -4,29 +4,26 @@ import { useMemo } from "react";
 import {
   Menu,
   MenuGroup,
+  MenuGroupLabel,
   MenuItem,
   MenuPopup,
-  MenuSeparator,
 } from "~/components/ui/menu";
-import { cn } from "~/lib/utils";
 
 export type SidebarContextMenuEntry<T extends string> =
+  | {
+      type: "section";
+      label: string;
+    }
   | {
       type: "item";
       id: T;
       label: string;
       icon: LucideIcon;
-      destructive?: boolean;
-    }
-  | {
-      type: "separator";
     };
 
 interface SidebarContextMenuProps<T extends string> {
   open: boolean;
   position: { x: number; y: number } | null;
-  sectionLabel: string;
-  title: string;
   entries: readonly SidebarContextMenuEntry<T>[];
   onOpenChange: (open: boolean) => void;
   onSelect: (id: T) => void;
@@ -35,33 +32,40 @@ interface SidebarContextMenuProps<T extends string> {
 export function SidebarContextMenu<T extends string>({
   open,
   position,
-  sectionLabel,
-  title,
   entries,
   onOpenChange,
   onSelect,
 }: SidebarContextMenuProps<T>) {
-  const groups = useMemo(() => {
-    const nextGroups: Array<Array<Extract<SidebarContextMenuEntry<T>, { type: "item" }>>> = [];
+  const sections = useMemo(() => {
+    const nextSections: Array<{
+      label: string | null;
+      items: Array<Extract<SidebarContextMenuEntry<T>, { type: "item" }>>;
+    }> = [];
+    let currentLabel: string | null = null;
     let currentGroup: Array<Extract<SidebarContextMenuEntry<T>, { type: "item" }>> = [];
 
+    const pushCurrentGroup = () => {
+      if (currentGroup.length === 0) return;
+      nextSections.push({
+        label: currentLabel,
+        items: currentGroup,
+      });
+      currentGroup = [];
+    };
+
     for (const entry of entries) {
-      if (entry.type === "separator") {
-        if (currentGroup.length > 0) {
-          nextGroups.push(currentGroup);
-          currentGroup = [];
-        }
+      if (entry.type === "section") {
+        pushCurrentGroup();
+        currentLabel = entry.label;
         continue;
       }
 
       currentGroup.push(entry);
     }
 
-    if (currentGroup.length > 0) {
-      nextGroups.push(currentGroup);
-    }
+    pushCurrentGroup();
 
-    return nextGroups;
+    return nextSections;
   }, [entries]);
 
   return (
@@ -82,43 +86,35 @@ export function SidebarContextMenu<T extends string>({
               }
             : null
         }
-        className="w-60 rounded-xl border-sidebar-border/80 bg-sidebar/96 text-sidebar-foreground shadow-[0_24px_80px_-30px_rgba(15,23,42,0.42)] backdrop-blur-xl before:hidden dark:shadow-[0_24px_80px_-30px_rgba(0,0,0,0.72)]"
+        className="w-56 overflow-hidden rounded border border-sidebar-border bg-sidebar text-sidebar-foreground shadow-xl shadow-background/30 before:hidden"
         positionMethod="fixed"
         side="bottom"
         sideOffset={6}
       >
-        <div className="mb-1 rounded-lg border border-sidebar-border/70 bg-linear-to-br from-sidebar-accent/80 via-sidebar-accent/45 to-transparent px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] dark:shadow-none">
-          <p className="text-[10px] tracking-[0.24em] text-sidebar-foreground/45 uppercase">
-            {sectionLabel}
-          </p>
-          <p className="mt-1 truncate text-sm font-medium text-sidebar-foreground">{title}</p>
-        </div>
-
-        {groups.map((group, groupIndex) => {
-          const groupKey = `${group[0]?.id ?? sectionLabel}-${group[group.length - 1]?.id ?? groupIndex}`;
+        {sections.map((section, sectionIndex) => {
+          const sectionKey = `${section.label ?? "section"}-${section.items[0]?.id ?? sectionIndex}`;
 
           return (
-            <div key={groupKey}>
-              {groupIndex > 0 ? <MenuSeparator className="mx-0 my-1 bg-sidebar-border/70" /> : null}
+            <div key={sectionKey} className={sectionIndex > 0 ? "pt-1" : undefined}>
               <MenuGroup>
-                {group.map((entry) => {
+                {section.label ? (
+                  <MenuGroupLabel
+                    className="px-2 pt-1 pb-0.5 text-[10px] font-medium tracking-[0.04em] text-sidebar-foreground/45 uppercase"
+                  >
+                    {section.label}
+                  </MenuGroupLabel>
+                ) : null}
+                {section.items.map((entry) => {
                   const Icon = entry.icon;
 
                   return (
                     <MenuItem
                       key={entry.id}
-                      className={cn(
-                        "min-h-9 rounded-md px-2.5 text-sm data-highlighted:bg-sidebar-accent data-highlighted:text-sidebar-accent-foreground",
-                        entry.destructive &&
-                          "text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive",
-                      )}
+                      className="min-h-7 rounded px-2 text-[11px] font-medium text-sidebar-foreground/80 data-highlighted:bg-sidebar-accent data-highlighted:text-sidebar-accent-foreground sm:text-[11px] [&>svg]:size-3.5 [&>svg]:text-sidebar-foreground/55"
                       onClick={() => onSelect(entry.id)}
-                      variant={entry.destructive ? "destructive" : "default"}
+                      variant="default"
                     >
-                      <Icon
-                        aria-hidden="true"
-                        className={entry.destructive ? "text-destructive/85" : undefined}
-                      />
+                      <Icon aria-hidden="true" />
                       {entry.label}
                     </MenuItem>
                   );
