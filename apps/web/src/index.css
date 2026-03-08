@@ -195,9 +195,7 @@ body::after {
 }
 
 pre,
-code,
-textarea,
-input {
+code {
   font-family:
     "SF Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 }

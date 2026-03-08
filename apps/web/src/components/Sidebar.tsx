@@ -39,7 +39,6 @@ import { getTerminalStatusIndicator, getThreadStatusPill } from "../lib/threadSt
 import { toastManager } from "./ui/toast";
 import {
   AlertDialog,
-  AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogPopup,
@@ -49,15 +48,15 @@ import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
 import {
   Dialog,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogPanel,
   DialogPopup,
   DialogTitle,
 } from "./ui/dialog";
+import { Field, FieldLabel } from "./ui/field";
 import { Input } from "./ui/input";
-import { Label } from "./ui/label";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "./ui/input-group";
 import {
   getDesktopUpdateActionError,
   getDesktopUpdateButtonTooltip,
@@ -1448,55 +1447,68 @@ export default function Sidebar() {
         }}
       >
         <DialogPopup className="max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Add project</DialogTitle>
-            <DialogDescription>
-              Add a workspace folder to the sidebar and open a fresh thread for it.
-            </DialogDescription>
+          <DialogHeader className="pb-5">
+            <div className="flex items-center gap-4">
+              <div className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
+                <FolderOpenIcon />
+              </div>
+              <div className="min-w-0">
+                <DialogTitle>Add workspace project</DialogTitle>
+              </div>
+            </div>
           </DialogHeader>
-          <DialogPanel className="space-y-4">
+          <DialogPanel>
             <form
               id="add-project-form"
-              className="space-y-4"
+              className="flex flex-col gap-4"
               onSubmit={(event) => {
                 event.preventDefault();
                 handleAddProject();
               }}
             >
-              <div className="rounded-xl border border-border/70 bg-muted/35 p-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="project-workspace-root">Workspace path</Label>
+              <Field className="gap-2">
+                <FieldLabel htmlFor="project-workspace-root" className="text-muted-foreground">
+                  Workspace path
+                </FieldLabel>
+                {isElectron ? (
+                  <InputGroup>
+                    <InputGroupInput
+                      id="project-workspace-root"
+                      autoFocus
+                      placeholder="/path/to/project"
+                      value={newCwd}
+                      onChange={(event) => setNewCwd(event.target.value)}
+                    />
+                    <InputGroupAddon align="inline-end">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-muted-foreground hover:text-foreground"
+                        onClick={() => void handlePickFolder()}
+                        disabled={isPickingFolder || isAddingProject}
+                      >
+                        {isPickingFolder ? "Picking..." : "Browse"}
+                      </Button>
+                    </InputGroupAddon>
+                  </InputGroup>
+                ) : (
                   <Input
                     id="project-workspace-root"
                     autoFocus
-                    className="font-mono text-xs sm:text-xs"
                     placeholder="/path/to/project"
                     value={newCwd}
                     onChange={(event) => setNewCwd(event.target.value)}
                   />
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground/75">
-                  Use an absolute folder path. If the project already exists, the sidebar will jump
-                  to its latest thread instead of creating a duplicate.
-                </p>
-              </div>
-              {isElectron ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full justify-center"
-                  onClick={() => void handlePickFolder()}
-                  disabled={isPickingFolder || isAddingProject}
-                >
-                  {isPickingFolder ? "Picking folder..." : "Browse for folder"}
-                </Button>
-              ) : null}
+                )}
+              </Field>
             </form>
           </DialogPanel>
           <DialogFooter>
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
+              size="toolbar"
               onClick={() => {
                 setAddProjectDialogOpen(false);
               }}
@@ -1504,7 +1516,13 @@ export default function Sidebar() {
             >
               Cancel
             </Button>
-            <Button form="add-project-form" type="submit" disabled={isAddingProject}>
+            <Button
+              form="add-project-form"
+              type="submit"
+              variant="toolbar-primary"
+              size="toolbar"
+              disabled={isAddingProject}
+            >
               {isAddingProject ? "Adding..." : "Add project"}
             </Button>
           </DialogFooter>
@@ -1520,23 +1538,40 @@ export default function Sidebar() {
         }}
       >
         <AlertDialogPopup>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {deleteDialogState?.kind === "project" ? "Delete project?" : "Delete thread?"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
+          <AlertDialogHeader className="pb-5">
+            <div className="flex items-center gap-4">
+              <div
+                className={cn(
+                  "flex size-11 shrink-0 items-center justify-center rounded-xl border",
+                  deleteDialogState?.kind === "project"
+                    ? "border-orange-500/20 bg-orange-500/10 text-orange-400"
+                    : "border-destructive/25 bg-destructive/10 text-destructive",
+                )}
+              >
+                {deleteDialogState?.kind === "project" ? <FolderIcon /> : <Trash2Icon />}
+              </div>
+              <div className="min-w-0 text-left">
+                <AlertDialogTitle>
+                  {deleteDialogState?.kind === "project" ? "Delete project" : "Delete thread"}
+                </AlertDialogTitle>
+              </div>
+            </div>
+          </AlertDialogHeader>
+
+          <div className="bg-popover px-6 py-5 max-sm:px-5">
+            <p className="text-sm leading-6 text-muted-foreground">
               {deleteDialogState?.kind === "project"
                 ? `This removes "${deleteDialogState.projectName}" from the sidebar. This action cannot be undone.`
                 : deleteDialogState
                   ? `This permanently clears the conversation history for "${deleteDialogState.threadTitle}".`
                   : ""}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
+            </p>
+          </div>
 
           {deleteDialogState?.kind === "thread" && deleteDialogState.canDeleteWorktree ? (
-            <div className="px-6 pb-6">
+            <div className="bg-popover px-6 pb-6 pt-0 max-sm:px-5">
               <label
-                className="flex items-start gap-3 rounded border border-border bg-muted/40 p-3"
+                className="flex items-start gap-3"
                 htmlFor="delete-thread-worktree"
               >
                 <Checkbox
@@ -1557,12 +1592,18 @@ export default function Sidebar() {
           ) : null}
 
           <AlertDialogFooter>
-            <Button disabled={deleteDialogSubmitting} variant="outline" onClick={closeDeleteDialog}>
+            <Button
+              disabled={deleteDialogSubmitting}
+              variant="ghost"
+              size="toolbar"
+              onClick={closeDeleteDialog}
+            >
               Cancel
             </Button>
             <Button
               disabled={deleteDialogSubmitting}
               variant="destructive"
+              size="toolbar"
               onClick={() => {
                 void handleDeleteDialogConfirm();
               }}

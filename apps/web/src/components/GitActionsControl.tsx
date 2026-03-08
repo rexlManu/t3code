@@ -16,16 +16,17 @@ import {
   summarizeGitResult,
 } from "./GitActionsControl.logic";
 import { Button } from "~/components/ui/button";
+import { Badge } from "~/components/ui/badge";
 import {
   Dialog,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogPanel,
   DialogPopup,
   DialogTitle,
 } from "~/components/ui/dialog";
-import { Group, GroupSeparator } from "~/components/ui/group";
+import { Field, FieldLabel } from "~/components/ui/field";
+import { Group } from "~/components/ui/group";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { ScrollArea } from "~/components/ui/scroll-area";
@@ -633,7 +634,7 @@ export default function GitActionsControl({
               variant="toolbar-primary"
               size="toolbar"
               className={cn(
-                "gap-0 px-2.5 disabled:cursor-not-allowed disabled:opacity-100",
+                "gap-0 px-2 disabled:cursor-not-allowed disabled:opacity-100",
                 !iconOnly && "@2xl/chat-header:gap-2 @2xl/chat-header:px-3",
               )}
               disabled={isGitActionRunning || quickAction.disabled}
@@ -650,9 +651,6 @@ export default function GitActionsControl({
               </span>
             </Button>
           )}
-          <GroupSeparator
-            className={cn("hidden bg-primary-foreground/15", !iconOnly && "@2xl/chat-header:block")}
-          />
           <Menu
             onOpenChange={(open) => {
               if (open) void invalidateGitQueries(queryClient);
@@ -660,7 +658,12 @@ export default function GitActionsControl({
           >
             <MenuTrigger
               render={
-                <Button aria-label="Git action options" size="toolbar-icon" variant="toolbar-primary" />
+                <Button
+                  aria-label="Git action options"
+                  size="toolbar-icon"
+                  variant="toolbar-primary"
+                  className="relative before:absolute before:inset-y-2 before:left-0 before:w-px before:bg-primary-foreground/20 before:content-['']"
+                />
               }
               disabled={isGitActionRunning}
             >
@@ -743,25 +746,32 @@ export default function GitActionsControl({
         }}
       >
         <DialogPopup>
-          <DialogHeader>
-            <DialogTitle>{COMMIT_DIALOG_TITLE}</DialogTitle>
-            <DialogDescription>{COMMIT_DIALOG_DESCRIPTION}</DialogDescription>
+          <DialogHeader className="pb-5">
+            <div className="flex items-center gap-4">
+              <div className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
+                <GitCommitIcon />
+              </div>
+              <div className="min-w-0">
+                <DialogTitle>{COMMIT_DIALOG_TITLE}</DialogTitle>
+              </div>
+            </div>
           </DialogHeader>
           <DialogPanel className="space-y-4">
-            <div className="space-y-3 rounded-lg border border-input bg-muted/40 p-3 text-xs">
-              <div className="grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1">
-                <span className="text-muted-foreground">Branch</span>
-                <span className="flex items-center justify-between gap-2">
-                  <span className="font-medium">{gitStatusForActions?.branch ?? "(detached HEAD)"}</span>
-                  {isDefaultBranch && (
-                    <span className="text-right text-warning text-xs">Warning: default branch</span>
-                  )}
-                </span>
+            <p className="text-sm text-muted-foreground">{COMMIT_DIALOG_DESCRIPTION}</p>
+            <div className="space-y-4 text-xs">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Branch</span>
+                  <span className="font-medium text-foreground">
+                    {gitStatusForActions?.branch ?? "(detached HEAD)"}
+                  </span>
+                </div>
+                {isDefaultBranch ? <Badge variant="warning">Default branch</Badge> : null}
               </div>
-              <div className="space-y-1">
+              <div className="space-y-2">
                 <p className="text-muted-foreground">Files</p>
                 {!gitStatusForActions || gitStatusForActions.workingTree.files.length === 0 ? (
-                  <p className="font-medium">none</p>
+                  <p className="font-medium text-foreground">none</p>
                 ) : (
                   <div className="space-y-2">
                     <ScrollArea className="h-44 rounded-md border border-input bg-background">
@@ -770,11 +780,11 @@ export default function GitActionsControl({
                           <button
                             type="button"
                             key={file.path}
-                            className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-1 font-mono text-left transition-colors hover:bg-accent/50"
+                            className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-1 text-left transition-colors hover:bg-accent/50"
                             onClick={() => openChangedFileInEditor(file.path)}
                           >
-                            <span className="truncate">{file.path}</span>
-                            <span className="shrink-0">
+                            <span className="truncate font-mono text-foreground">{file.path}</span>
+                            <span className="shrink-0 font-mono">
                               <span className="text-success">+{file.insertions}</span>
                               <span className="text-muted-foreground"> / </span>
                               <span className="text-destructive">-{file.deletions}</span>
@@ -796,20 +806,20 @@ export default function GitActionsControl({
                 )}
               </div>
             </div>
-            <div className="space-y-1">
-              <p className="text-xs font-medium">Commit message (optional)</p>
+            <Field className="gap-2">
+              <FieldLabel className="text-muted-foreground">Commit message (optional)</FieldLabel>
               <Textarea
                 value={dialogCommitMessage}
                 onChange={(event) => setDialogCommitMessage(event.target.value)}
                 placeholder="Leave empty to auto-generate"
                 size="sm"
               />
-            </div>
+            </Field>
           </DialogPanel>
           <DialogFooter>
             <Button
-              variant="outline"
-              size="sm"
+              variant="ghost"
+              size="toolbar"
               onClick={() => {
                 setIsCommitDialogOpen(false);
                 setDialogCommitMessage("");
@@ -817,10 +827,10 @@ export default function GitActionsControl({
             >
               Cancel
             </Button>
-            <Button variant="outline" size="sm" onClick={runDialogActionOnNewBranch}>
+            <Button variant="toolbar" size="toolbar" onClick={runDialogActionOnNewBranch}>
               Commit on new branch
             </Button>
-            <Button size="sm" onClick={runDialogAction}>
+            <Button variant="toolbar-primary" size="toolbar" onClick={runDialogAction}>
               Commit
             </Button>
           </DialogFooter>
@@ -836,20 +846,39 @@ export default function GitActionsControl({
         }}
       >
         <DialogPopup className="max-w-xl">
-          <DialogHeader>
-            <DialogTitle>
-              {pendingDefaultBranchActionCopy?.title ?? "Run action on default branch?"}
-            </DialogTitle>
-            <DialogDescription>{pendingDefaultBranchActionCopy?.description}</DialogDescription>
+          <DialogHeader className="pb-5">
+            <div className="flex items-center gap-4">
+              <div className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
+                <InfoIcon />
+              </div>
+              <div className="min-w-0">
+                <DialogTitle>
+                  {pendingDefaultBranchActionCopy?.title ?? "Run action on default branch?"}
+                </DialogTitle>
+              </div>
+            </div>
           </DialogHeader>
+          <DialogPanel>
+            <p className="text-sm text-muted-foreground">
+              {pendingDefaultBranchActionCopy?.description}
+            </p>
+          </DialogPanel>
           <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setPendingDefaultBranchAction(null)}>
+            <Button
+              variant="ghost"
+              size="toolbar"
+              onClick={() => setPendingDefaultBranchAction(null)}
+            >
               Abort
             </Button>
-            <Button variant="outline" size="sm" onClick={continuePendingDefaultBranchAction}>
+            <Button variant="toolbar" size="toolbar" onClick={continuePendingDefaultBranchAction}>
               {pendingDefaultBranchActionCopy?.continueLabel ?? "Continue"}
             </Button>
-            <Button size="sm" onClick={checkoutFeatureBranchAndContinuePendingAction}>
+            <Button
+              variant="toolbar-primary"
+              size="toolbar"
+              onClick={checkoutFeatureBranchAndContinuePendingAction}
+            >
               Checkout feature branch & continue
             </Button>
           </DialogFooter>

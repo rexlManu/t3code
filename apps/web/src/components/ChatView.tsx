@@ -198,6 +198,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from "./ui/dialog";
+import { Field, FieldLabel } from "./ui/field";
 import { toastManager } from "./ui/toast";
 import { getOpencodeModelCatalog, getOpencodeModelDisplayName } from "../opencodeModelCatalog";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
@@ -269,8 +270,8 @@ function WorkingIndicatorRow(props: { createdAt: string | null; nowIso: string }
 
   return (
     <div aria-live="polite" className="py-0.5 pl-1.5" role="status">
-      <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-border/70 bg-background/70 px-2.5 py-1 text-[11px] text-muted-foreground/70 backdrop-blur-xs">
-        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary/80">
+      <div className="inline-flex max-w-full items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-2.5 py-1 text-[11px] text-muted-foreground/70 backdrop-blur-xs">
+        <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary/80">
           <BotIcon className="size-3" />
         </span>
         <span aria-hidden="true" className="inline-flex items-center gap-[3px]">
@@ -4228,14 +4229,14 @@ const ChatHeader = memo(function ChatHeader({
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-sm">
           {activeProjectName ? (
             <>
-              <span className="shrink-0 truncate text-[14px] font-medium text-muted-foreground">
+              <span className="min-w-0 max-w-[32%] shrink truncate text-[14px] font-medium text-muted-foreground">
                 {activeProjectName}
               </span>
               <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground/70" />
             </>
           ) : null}
           <h2
-            className="min-w-0 shrink truncate text-[16px] font-medium text-foreground"
+            className="min-w-0 flex-1 truncate text-[16px] font-medium text-foreground"
             title={activeThreadTitle}
           >
             {activeThreadTitle}
@@ -5103,15 +5104,24 @@ const ProposedPlanCard = memo(function ProposedPlanCard({
         }}
       >
         <DialogPopup className="max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Save plan to workspace</DialogTitle>
-            <DialogDescription>
-              Enter a path relative to <code>{workspaceRoot ?? "the workspace"}</code>.
-            </DialogDescription>
+          <DialogHeader className="pb-5">
+            <div className="flex items-center gap-4">
+              <div className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
+                <FolderIcon />
+              </div>
+              <div className="min-w-0 space-y-1">
+                <DialogTitle>Save plan to workspace</DialogTitle>
+                <DialogDescription>
+                  Enter a path relative to <code>{workspaceRoot ?? "the workspace"}</code>.
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
-          <DialogPanel className="space-y-3">
-            <label htmlFor={savePathInputId} className="grid gap-1.5">
-              <span className="text-xs font-medium text-foreground">Workspace path</span>
+          <DialogPanel>
+            <Field className="gap-2">
+              <FieldLabel htmlFor={savePathInputId} className="text-muted-foreground">
+                Workspace path
+              </FieldLabel>
               <Input
                 id={savePathInputId}
                 value={savePath}
@@ -5120,19 +5130,20 @@ const ProposedPlanCard = memo(function ProposedPlanCard({
                 spellCheck={false}
                 disabled={isSavingToWorkspace}
               />
-            </label>
+            </Field>
           </DialogPanel>
           <DialogFooter>
             <Button
-              variant="outline"
-              size="sm"
+              variant="ghost"
+              size="toolbar"
               onClick={() => setIsSaveDialogOpen(false)}
               disabled={isSavingToWorkspace}
             >
               Cancel
             </Button>
             <Button
-              size="sm"
+              variant="toolbar-primary"
+              size="toolbar"
               onClick={() => void handleSaveToWorkspace()}
               disabled={isSavingToWorkspace}
             >
