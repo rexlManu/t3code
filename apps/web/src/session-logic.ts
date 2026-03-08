@@ -483,6 +483,7 @@ function shouldHideWorkLogActivity(
   }
 
   return (
+    activity.kind === "reasoning.delta" ||
     activity.kind === "task.progress" ||
     activity.kind === "tool.updated" ||
     activity.kind === "turn.plan.updated" ||
