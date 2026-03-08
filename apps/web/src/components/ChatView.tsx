@@ -641,9 +641,10 @@ const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
 
 interface ChatViewProps {
   threadId: ThreadId;
+  splitPaneCount?: number;
 }
 
-export default function ChatView({ threadId }: ChatViewProps) {
+export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps) {
   const threads = useStore((store) => store.threads);
   const projects = useStore((store) => store.projects);
   const markThreadVisited = useStore((store) => store.markThreadVisited);
@@ -3502,6 +3503,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           gitCwd={gitCwd}
           diffOpen={diffOpen}
+          iconOnlyActions={splitPaneCount >= 3}
           onRunProjectScript={(script) => {
             void runProjectScript(script);
           }}
@@ -4095,6 +4097,7 @@ interface ChatHeaderProps {
   diffToggleShortcutLabel: string | null;
   gitCwd: string | null;
   diffOpen: boolean;
+  iconOnlyActions?: boolean;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
@@ -4114,6 +4117,7 @@ const ChatHeaderActions = memo(function ChatHeaderActions({
   diffToggleShortcutLabel,
   gitCwd,
   diffOpen,
+  iconOnlyActions = false,
   onRunProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
@@ -4121,12 +4125,13 @@ const ChatHeaderActions = memo(function ChatHeaderActions({
   isGitRepo,
 }: ChatHeaderActionsProps) {
   return (
-    <div className="@container/header-actions flex min-w-0 items-center justify-end gap-2 @sm/header-actions:gap-3">
+    <div className="flex min-w-0 items-center justify-end gap-2">
       {activeProjectScripts && (
         <ProjectScriptsControl
           scripts={activeProjectScripts}
           keybindings={keybindings}
           preferredScriptId={preferredScriptId}
+          iconOnly={iconOnlyActions}
           onRunScript={onRunProjectScript}
           onAddScript={onAddProjectScript}
           onUpdateScript={onUpdateProjectScript}
@@ -4136,10 +4141,17 @@ const ChatHeaderActions = memo(function ChatHeaderActions({
         <OpenInPicker
           keybindings={keybindings}
           availableEditors={availableEditors}
+          iconOnly={iconOnlyActions}
           openInCwd={openInCwd}
         />
       )}
-      {activeProjectName && <GitActionsControl gitCwd={gitCwd} activeThreadId={activeThreadId} />}
+      {activeProjectName && (
+        <GitActionsControl
+          gitCwd={gitCwd}
+          activeThreadId={activeThreadId}
+          iconOnly={iconOnlyActions}
+        />
+      )}
       <Tooltip>
         <TooltipTrigger
           render={
@@ -4181,13 +4193,14 @@ const ChatHeader = memo(function ChatHeader({
   diffToggleShortcutLabel,
   gitCwd,
   diffOpen,
+  iconOnlyActions,
   onRunProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
   onToggleDiff,
 }: ChatHeaderProps) {
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2">
+    <div className="@container/chat-header flex min-w-0 flex-1 items-center gap-2">
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
         <SidebarTrigger className="size-7 shrink-0 rounded md:hidden" />
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-sm">
@@ -4212,21 +4225,22 @@ const ChatHeader = memo(function ChatHeader({
           </Badge>
         )}
       </div>
-      <ChatHeaderActions
-        activeThreadId={activeThreadId}
-        activeProjectName={activeProjectName}
-        isGitRepo={isGitRepo}
-        openInCwd={openInCwd}
-        activeProjectScripts={activeProjectScripts}
-        preferredScriptId={preferredScriptId}
-        keybindings={keybindings}
-        availableEditors={availableEditors}
-        diffToggleShortcutLabel={diffToggleShortcutLabel}
-        gitCwd={gitCwd}
-        diffOpen={diffOpen}
-        onRunProjectScript={onRunProjectScript}
-        onAddProjectScript={onAddProjectScript}
-        onUpdateProjectScript={onUpdateProjectScript}
+        <ChatHeaderActions
+          activeThreadId={activeThreadId}
+          activeProjectName={activeProjectName}
+          isGitRepo={isGitRepo}
+          openInCwd={openInCwd}
+          activeProjectScripts={activeProjectScripts}
+          preferredScriptId={preferredScriptId}
+          keybindings={keybindings}
+          availableEditors={availableEditors}
+          diffToggleShortcutLabel={diffToggleShortcutLabel}
+          gitCwd={gitCwd}
+          diffOpen={diffOpen}
+          iconOnlyActions={iconOnlyActions}
+          onRunProjectScript={onRunProjectScript}
+          onAddProjectScript={onAddProjectScript}
+          onUpdateProjectScript={onUpdateProjectScript}
         onToggleDiff={onToggleDiff}
       />
     </div>
@@ -6101,10 +6115,12 @@ const OpenInPicker = memo(function OpenInPicker({
   keybindings,
   availableEditors,
   openInCwd,
+  iconOnly = false,
 }: {
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
   openInCwd: string | null;
+  iconOnly?: boolean;
 }) {
   const [lastEditor, setLastEditor] = useState<EditorId>(() => {
     const stored = localStorage.getItem(LAST_EDITOR_KEY);
@@ -6187,13 +6203,26 @@ const OpenInPicker = memo(function OpenInPicker({
       <Button
         size="toolbar"
         variant="toolbar"
+        className={cn(
+          "gap-0 px-2.5",
+          !iconOnly && "@2xl/chat-header:gap-2 @2xl/chat-header:px-3",
+        )}
         disabled={!effectiveEditor || !openInCwd}
         onClick={() => openInEditor(effectiveEditor)}
       >
         {primaryOption?.Icon && <primaryOption.Icon aria-hidden="true" className="size-3.5" />}
-        <span>Open</span>
+        <span
+          className={cn(
+            "sr-only",
+            !iconOnly && "@2xl/chat-header:not-sr-only @2xl/chat-header:ml-0.5",
+          )}
+        >
+          Open
+        </span>
       </Button>
-      <GroupSeparator className="hidden bg-foreground/10 @sm/header-actions:block" />
+      <GroupSeparator
+        className={cn("hidden bg-foreground/10", !iconOnly && "@2xl/chat-header:block")}
+      />
       <Menu>
         <MenuTrigger render={<Button aria-label="Open options" size="toolbar-icon" variant="toolbar" />}>
           <ChevronDownIcon aria-hidden="true" className="size-4" />

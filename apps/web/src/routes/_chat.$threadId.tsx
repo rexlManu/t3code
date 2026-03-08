@@ -274,7 +274,7 @@ function ChatThreadRouteView() {
   if (isSplitActive) {
     return (
       <>
-        <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+        <SidebarInset className="min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
           <ChatSplitView
             paneIds={paneIds}
             primaryId={threadId}

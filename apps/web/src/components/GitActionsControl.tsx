@@ -30,6 +30,7 @@ import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Textarea } from "~/components/ui/textarea";
+import { cn } from "~/lib/utils";
 import { toastManager } from "~/components/ui/toast";
 import {
   gitBranchesQueryOptions,
@@ -46,6 +47,7 @@ import { readNativeApi } from "~/nativeApi";
 interface GitActionsControlProps {
   gitCwd: string | null;
   activeThreadId: ThreadId | null;
+  iconOnly?: boolean;
 }
 
 interface PendingDefaultBranchAction {
@@ -138,7 +140,11 @@ function GitQuickActionIcon({ quickAction }: { quickAction: GitQuickAction }) {
   return <InfoIcon className={iconClassName} />;
 }
 
-export default function GitActionsControl({ gitCwd, activeThreadId }: GitActionsControlProps) {
+export default function GitActionsControl({
+  gitCwd,
+  activeThreadId,
+  iconOnly = false,
+}: GitActionsControlProps) {
   const threadToastData = useMemo(
     () => (activeThreadId ? { threadId: activeThreadId } : undefined),
     [activeThreadId],
@@ -599,14 +605,24 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
                 render={
                   <Button
                     aria-disabled="true"
-                    className="cursor-not-allowed"
+                    className={cn(
+                      "cursor-not-allowed gap-0 px-2.5",
+                      !iconOnly && "@2xl/chat-header:gap-2 @2xl/chat-header:px-3",
+                    )}
                     size="toolbar"
                     variant="toolbar-primary"
                   />
                 }
               >
                 <GitQuickActionIcon quickAction={quickAction} />
-                <span>{quickAction.label}</span>
+                <span
+                  className={cn(
+                    "sr-only",
+                    !iconOnly && "@2xl/chat-header:not-sr-only @2xl/chat-header:ml-0.5",
+                  )}
+                >
+                  {quickAction.label}
+                </span>
               </PopoverTrigger>
               <PopoverPopup tooltipStyle side="bottom" align="start">
                 {quickActionDisabledReason}
@@ -616,15 +632,27 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
             <Button
               variant="toolbar-primary"
               size="toolbar"
-              className="disabled:cursor-not-allowed disabled:opacity-100"
+              className={cn(
+                "gap-0 px-2.5 disabled:cursor-not-allowed disabled:opacity-100",
+                !iconOnly && "@2xl/chat-header:gap-2 @2xl/chat-header:px-3",
+              )}
               disabled={isGitActionRunning || quickAction.disabled}
               onClick={runQuickAction}
             >
               <GitQuickActionIcon quickAction={quickAction} />
-              <span>{quickAction.label}</span>
+              <span
+                className={cn(
+                  "sr-only",
+                  !iconOnly && "@2xl/chat-header:not-sr-only @2xl/chat-header:ml-0.5",
+                )}
+              >
+                {quickAction.label}
+              </span>
             </Button>
           )}
-          <GroupSeparator className="hidden bg-primary-foreground/15 @sm/header-actions:block" />
+          <GroupSeparator
+            className={cn("hidden bg-primary-foreground/15", !iconOnly && "@2xl/chat-header:block")}
+          />
           <Menu
             onOpenChange={(open) => {
               if (open) void invalidateGitQueries(queryClient);

@@ -26,7 +26,7 @@ import {
   primaryProjectScript,
 } from "~/projectScripts";
 import { shortcutLabelForCommand } from "~/keybindings";
-import { isMacPlatform } from "~/lib/utils";
+import { cn, isMacPlatform } from "~/lib/utils";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -81,6 +81,7 @@ interface ProjectScriptsControlProps {
   scripts: ProjectScript[];
   keybindings: ResolvedKeybindingsConfig;
   preferredScriptId?: string | null;
+  iconOnly?: boolean;
   onRunScript: (script: ProjectScript) => void;
   onAddScript: (input: NewProjectScriptInput) => Promise<void> | void;
   onUpdateScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void> | void;
@@ -141,6 +142,7 @@ export default function ProjectScriptsControl({
   scripts,
   keybindings,
   preferredScriptId = null,
+  iconOnly = false,
   onRunScript,
   onAddScript,
   onUpdateScript,
@@ -254,15 +256,26 @@ export default function ProjectScriptsControl({
           <Button
             size="toolbar"
             variant="toolbar"
+            className={cn(
+              "gap-0 px-2.5",
+              !iconOnly && "@2xl/chat-header:gap-2 @2xl/chat-header:px-3",
+            )}
             onClick={() => onRunScript(primaryScript)}
             title={`Run ${primaryScript.name}`}
           >
             <ScriptIcon icon={primaryScript.icon} />
-            <span className="sr-only @sm/header-actions:not-sr-only @sm/header-actions:ml-0.5">
+            <span
+              className={cn(
+                "sr-only",
+                !iconOnly && "@2xl/chat-header:not-sr-only @2xl/chat-header:ml-0.5",
+              )}
+            >
               {primaryScript.name}
             </span>
           </Button>
-          <GroupSeparator className="hidden bg-foreground/10 @sm/header-actions:block" />
+          <GroupSeparator
+            className={cn("hidden bg-foreground/10", !iconOnly && "@2xl/chat-header:block")}
+          />
           <Menu highlightItemOnHover={false}>
             <MenuTrigger
               render={
@@ -323,9 +336,25 @@ export default function ProjectScriptsControl({
           </Menu>
         </Group>
       ) : (
-        <Button size="toolbar" variant="toolbar" onClick={openAddDialog} title="Add action">
+        <Button
+          size="toolbar"
+          variant="toolbar"
+          className={cn(
+            "gap-0 px-2.5",
+            !iconOnly && "@2xl/chat-header:gap-2 @2xl/chat-header:px-3",
+          )}
+          onClick={openAddDialog}
+          title="Add action"
+        >
           <PlusIcon className="size-3.5" />
-          <span>Add Action</span>
+          <span
+            className={cn(
+              "sr-only",
+              !iconOnly && "@2xl/chat-header:not-sr-only @2xl/chat-header:ml-0.5",
+            )}
+          >
+            Add Action
+          </span>
         </Button>
       )}
 

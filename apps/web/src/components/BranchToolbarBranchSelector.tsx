@@ -13,6 +13,7 @@ import {
 } from "react";
 
 import { gitBranchesQueryOptions, gitQueryKeys, invalidateGitQueries } from "../lib/gitReactQuery";
+import { cn } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import {
   dedupeRemoteBranchesWithLocalMatches,
@@ -311,7 +312,7 @@ export function BranchToolbarBranchSelector({
           <Button
             variant="toolbar"
             size="toolbar"
-            className="min-w-[10.5rem] justify-between px-3 text-xs font-medium"
+            className="w-[8.5rem] min-w-0 justify-between px-2.5 text-xs font-medium @lg/branch-toolbar:w-[10rem] @lg/branch-toolbar:px-3 @xl/branch-toolbar:min-w-[10.5rem] @xl/branch-toolbar:w-auto"
           />
         }
         disabled={branchesQuery.isLoading || isBranchActionPending}

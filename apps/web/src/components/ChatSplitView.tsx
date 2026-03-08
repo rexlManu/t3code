@@ -169,7 +169,7 @@ export default function ChatSplitView({
             }}
           />
           <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-            <ChatView key={id} threadId={id} />
+            <ChatView key={id} threadId={id} splitPaneCount={paneIds.length} />
           </div>
         </div>
       ))}
