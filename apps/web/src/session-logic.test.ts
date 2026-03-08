@@ -376,6 +376,16 @@ describe("deriveWorkLogEntries", () => {
   it("suppresses noisy OpenCode progress churn while keeping completed work", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
+        id: "reasoning-delta",
+        createdAt: "2026-02-23T00:00:00.500Z",
+        kind: "reasoning.delta",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          detail: "Tracing the OpenCode tool stream.",
+        },
+      }),
+      makeActivity({
         id: "reasoning-progress",
         createdAt: "2026-02-23T00:00:01.000Z",
         kind: "task.progress",
