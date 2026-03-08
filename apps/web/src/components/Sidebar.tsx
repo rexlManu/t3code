@@ -1,7 +1,9 @@
 import {
-  ChevronRightIcon,
   Columns2Icon,
+  FolderIcon,
+  FolderOpenIcon,
   GitPullRequestIcon,
+  PlusIcon,
   RocketIcon,
   SquarePenIcon,
   TerminalIcon,
@@ -20,7 +22,7 @@ import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useAppSettings } from "../appSettings";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL } from "../branding";
-import { newCommandId, newProjectId } from "../lib/utils";
+import { cn, newCommandId, newProjectId } from "../lib/utils";
 import { useStore } from "../store";
 import { isChatNewLocalShortcut, isChatNewShortcut, shortcutLabelForCommand } from "../keybindings";
 import { derivePendingApprovals } from "../session-logic";
@@ -58,7 +60,6 @@ import {
   SidebarSeparator,
   SidebarTrigger,
 } from "./ui/sidebar";
-import { ProjectFavicon } from "./ProjectFavicon";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
 import { isNonEmpty as isNonEmptyString } from "effect/String";
 import { stripDiffSearchParams } from "../diffRouteSearch";
@@ -173,18 +174,6 @@ export default function Sidebar() {
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
-  const splitPaneIndexByThreadId = useMemo(() => {
-    const indexByThreadId = new Map<ThreadId, number>();
-    if (!routeThreadId) {
-      return indexByThreadId;
-    }
-
-    const paneIds = buildPaneIds(routeThreadId, currentSplitParam, MAX_SPLIT_PANES);
-    paneIds.forEach((paneId, index) => {
-      indexByThreadId.set(paneId, index + 1);
-    });
-    return indexByThreadId;
-  }, [currentSplitParam, routeThreadId]);
   const handleOpenInSplitView = useCallback(
     (splitThreadId: ThreadId) => {
       if (!routeThreadId) {
@@ -794,6 +783,14 @@ export default function Sidebar() {
       shortcutLabelForCommand(keybindings, "chat.new"),
     [keybindings],
   );
+  const activeProjectId = useMemo(() => {
+    if (!routeThreadId) return null;
+    return (
+      threads.find((thread) => thread.id === routeThreadId)?.projectId ??
+      getDraftThread(routeThreadId)?.projectId ??
+      null
+    );
+  }, [getDraftThread, routeThreadId, threads]);
 
   const handleDesktopUpdateButtonClick = useCallback(() => {
     const bridge = window.desktopBridge;
@@ -896,6 +893,64 @@ export default function Sidebar() {
 
       <SidebarContent className="gap-0">
         <SidebarGroup className="px-2 py-2">
+          <div className="mb-2 flex items-center justify-between px-2 py-1">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/65">
+              Projects
+            </span>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/75 transition-colors hover:text-foreground"
+              onClick={() => {
+                setAddingProject((current) => !current);
+              }}
+            >
+              <PlusIcon className="size-3.5" />
+              <span>Add project</span>
+            </button>
+          </div>
+
+          {addingProject ? (
+            <div className="mb-3 space-y-2 rounded-xl border border-border/60 bg-secondary/35 p-2.5">
+              <input
+                className="w-full rounded-md border border-border bg-background/70 px-2 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-ring focus:outline-none"
+                placeholder="/path/to/project"
+                value={newCwd}
+                onChange={(event) => setNewCwd(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") handleAddProject();
+                  if (event.key === "Escape") setAddingProject(false);
+                }}
+              />
+              {isElectron ? (
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-center rounded-md border border-border px-2 py-1.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-background/70 disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() => void handlePickFolder()}
+                  disabled={isPickingFolder || isAddingProject}
+                >
+                  {isPickingFolder ? "Picking folder..." : "Browse for folder"}
+                </button>
+              ) : null}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="flex-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground transition-colors duration-150 hover:bg-primary/90"
+                  onClick={handleAddProject}
+                  disabled={isAddingProject}
+                >
+                  {isAddingProject ? "Adding..." : "Add"}
+                </button>
+                <button
+                  type="button"
+                  className="flex-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground/80 transition-colors duration-150 hover:bg-background/70"
+                  onClick={() => setAddingProject(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           <SidebarMenu>
             {projects.map((project) => {
               const projectThreads = threads
@@ -911,6 +966,8 @@ export default function Sidebar() {
                 hasHiddenThreads && !isThreadListExpanded
                   ? projectThreads.slice(0, THREAD_PREVIEW_LIMIT)
                   : projectThreads;
+              const isProjectActive = activeProjectId === project.id || project.expanded;
+              const ProjectFolderIcon = project.expanded ? FolderOpenIcon : FolderIcon;
 
               return (
                 <Collapsible
@@ -928,7 +985,12 @@ export default function Sidebar() {
                         render={
                           <SidebarMenuButton
                             size="sm"
-                            className="gap-2 px-2 py-1.5 text-left hover:bg-accent group-hover/project-header:bg-accent group-hover/project-header:text-sidebar-accent-foreground"
+                            isActive={isProjectActive}
+                            className={cn(
+                              "rounded gap-2.5 px-2.5 py-2 text-left hover:bg-accent/80 group-hover/project-header:bg-accent/80 group-hover/project-header:text-sidebar-accent-foreground",
+                              isProjectActive &&
+                                "bg-primary/12 text-primary hover:bg-primary/15 hover:text-primary",
+                            )}
                           />
                         }
                         onContextMenu={(event) => {
@@ -939,13 +1001,18 @@ export default function Sidebar() {
                           });
                         }}
                       >
-                        <ChevronRightIcon
-                          className={`-ml-0.5 size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-150 ${
-                            project.expanded ? "rotate-90" : ""
-                          }`}
+                        <ProjectFolderIcon
+                          className={cn(
+                            "size-4 shrink-0 transition-colors",
+                            isProjectActive ? "text-primary" : "text-muted-foreground/70",
+                          )}
                         />
-                        <ProjectFavicon cwd={project.cwd} />
-                        <span className="flex-1 truncate text-xs font-medium text-foreground/90">
+                        <span
+                          className={cn(
+                            "flex-1 truncate text-xs font-medium transition-colors",
+                            isProjectActive ? "text-primary" : "text-foreground/90",
+                          )}
+                        >
                           {project.name}
                         </span>
                       </CollapsibleTrigger>
@@ -960,7 +1027,11 @@ export default function Sidebar() {
                                 />
                               }
                               showOnHover
-                              className="top-1 right-1 size-5 rounded-md p-0 text-muted-foreground/70 hover:bg-secondary hover:text-foreground"
+                              className={cn(
+                                "top-1 right-1 size-5 rounded p-0 text-muted-foreground/70",
+                                "hover:bg-accent/80 hover:text-foreground",
+                                isProjectActive && "text-primary hover:bg-primary/10 hover:text-primary",
+                              )}
                               onClick={(event) => {
                                 event.preventDefault();
                                 event.stopPropagation();
@@ -980,10 +1051,9 @@ export default function Sidebar() {
                     </div>
 
                     <CollapsibleContent>
-                      <SidebarMenuSub className="mx-1 my-0 w-full translate-x-0 gap-0 px-1.5 py-0">
+                      <SidebarMenuSub className="relative mx-0 my-1 w-full translate-x-0 gap-0 border-l-0 px-0 py-0 pl-7 before:absolute before:top-0 before:bottom-2 before:left-[1.125rem] before:w-px before:bg-border/60 before:content-['']">
                         {visibleThreads.map((thread) => {
                           const isActive = routeThreadId === thread.id;
-                          const splitPaneIndex = splitPaneIndexByThreadId.get(thread.id);
                           const threadStatus = getThreadStatusPill(
                             thread,
                             pendingApprovalByThreadId.get(thread.id) === true,
@@ -1000,7 +1070,7 @@ export default function Sidebar() {
                                 render={<div role="button" tabIndex={0} />}
                                 size="sm"
                                 isActive={isActive}
-                                className={`group/thread-row h-7 w-full translate-x-0 cursor-default justify-start px-2 text-left hover:bg-accent hover:text-foreground ${
+                                className={`group/thread-row h-7 w-full translate-x-0 cursor-default justify-start rounded px-2 text-left hover:bg-accent hover:text-foreground ${
                                   isActive
                                     ? "bg-accent/85 text-foreground font-medium ring-1 ring-border/70 dark:bg-accent/55 dark:ring-border/50"
                                     : "text-muted-foreground"
@@ -1091,19 +1161,6 @@ export default function Sidebar() {
                                   )}
                                 </div>
                                 <div className="ml-auto flex shrink-0 items-center gap-1.5">
-                                  {splitPaneIndex ? (
-                                    <span
-                                      className={`inline-flex min-w-4 items-center justify-center rounded-full border px-1 text-[10px] font-semibold ${
-                                        isActive
-                                          ? "border-primary/35 bg-primary/14 text-primary"
-                                          : "border-primary/25 bg-primary/10 text-primary/85"
-                                      }`}
-                                      aria-label={`Split pane ${splitPaneIndex}`}
-                                      title={`Split pane ${splitPaneIndex}`}
-                                    >
-                                      {splitPaneIndex}
-                                    </span>
-                                  ) : null}
                                   {terminalStatus && (
                                     <span
                                       role="img"
@@ -1147,7 +1204,7 @@ export default function Sidebar() {
                             <SidebarMenuSubButton
                               render={<button type="button" />}
                               size="sm"
-                              className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
+                              className="h-6 w-full translate-x-0 justify-start rounded px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
                               onClick={() => {
                                 expandThreadListForProject(project.id);
                               }}
@@ -1161,7 +1218,7 @@ export default function Sidebar() {
                             <SidebarMenuSubButton
                               render={<button type="button" />}
                               size="sm"
-                              className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
+                              className="h-6 w-full translate-x-0 justify-start rounded px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
                               onClick={() => {
                                 collapseThreadListForProject(project.id);
                               }}
@@ -1188,87 +1245,37 @@ export default function Sidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarSeparator />
-      <SidebarFooter className="gap-2 p-3">
-        {showDesktopUpdateButton ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  aria-label={desktopUpdateTooltip}
-                  aria-disabled={desktopUpdateButtonDisabled || undefined}
-                  disabled={desktopUpdateButtonDisabled}
-                  className={`flex w-full items-center justify-center gap-2 rounded-md border border-border px-2 py-1.5 text-xs transition-colors ${desktopUpdateButtonInteractivityClasses} ${desktopUpdateButtonClasses}`}
-                  onClick={handleDesktopUpdateButtonClick}
-                >
-                  <RocketIcon className="size-3.5" />
-                  <span className="truncate">
-                    {desktopUpdateButtonAction === "install"
-                      ? "Install update"
-                      : desktopUpdateState?.status === "downloading"
-                        ? "Downloading update..."
-                        : "Update available"}
-                  </span>
-                </button>
-              }
-            />
-            <TooltipPopup side="top">{desktopUpdateTooltip}</TooltipPopup>
-          </Tooltip>
-        ) : null}
-        {addingProject ? (
-          <>
-            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
-              Add project
-            </p>
-            <input
-              className="w-full rounded-md border border-border bg-secondary px-2 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-ring focus:outline-none"
-              placeholder="/path/to/project"
-              value={newCwd}
-              onChange={(event) => setNewCwd(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") handleAddProject();
-                if (event.key === "Escape") setAddingProject(false);
-              }}
-            />
-            {isElectron && (
-              <button
-                type="button"
-                className="flex w-full items-center justify-center rounded-md border border-border px-2 py-1.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
-                onClick={() => void handlePickFolder()}
-                disabled={isPickingFolder || isAddingProject}
-              >
-                {isPickingFolder ? "Picking folder..." : "Browse for folder"}
-              </button>
-            )}
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className="flex-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground transition-colors duration-150 hover:bg-primary/90"
-                onClick={handleAddProject}
-                disabled={isAddingProject}
-              >
-                {isAddingProject ? "Adding..." : "Add"}
-              </button>
-              <button
-                type="button"
-                className="flex-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground/80 transition-colors duration-150 hover:bg-secondary"
-                onClick={() => setAddingProject(false)}
-              >
-                Cancel
-              </button>
-            </div>
-          </>
-        ) : (
-          <button
-            type="button"
-            className="flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-border py-2 text-xs text-muted-foreground/70 transition-colors duration-150 hover:border-ring hover:text-muted-foreground"
-            onClick={() => setAddingProject(true)}
-          >
-            + Add project
-          </button>
-        )}
-      </SidebarFooter>
+      {showDesktopUpdateButton ? (
+        <>
+          <SidebarSeparator />
+          <SidebarFooter className="gap-2 p-3">
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label={desktopUpdateTooltip}
+                    aria-disabled={desktopUpdateButtonDisabled || undefined}
+                    disabled={desktopUpdateButtonDisabled}
+                    className={`flex w-full items-center justify-center gap-2 rounded-md border border-border px-2 py-1.5 text-xs transition-colors ${desktopUpdateButtonInteractivityClasses} ${desktopUpdateButtonClasses}`}
+                    onClick={handleDesktopUpdateButtonClick}
+                  >
+                    <RocketIcon className="size-3.5" />
+                    <span className="truncate">
+                      {desktopUpdateButtonAction === "install"
+                        ? "Install update"
+                        : desktopUpdateState?.status === "downloading"
+                          ? "Downloading update..."
+                          : "Update available"}
+                    </span>
+                  </button>
+                }
+              />
+              <TooltipPopup side="top">{desktopUpdateTooltip}</TooltipPopup>
+            </Tooltip>
+          </SidebarFooter>
+        </>
+      ) : null}
     </>
   );
 }
