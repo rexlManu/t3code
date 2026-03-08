@@ -894,12 +894,17 @@ export default function Sidebar() {
       <SidebarContent className="gap-0">
         <SidebarGroup className="px-2 py-2">
           <div className="mb-2 flex items-center justify-between px-2 py-1">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/65">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/75">
               Projects
             </span>
             <button
               type="button"
-              className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/75 transition-colors hover:text-foreground"
+              className={cn(
+                "inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/75 transition-colors",
+                addingProject
+                  ? "bg-primary/10 text-primary"
+                  : "hover:bg-accent/70 hover:text-foreground",
+              )}
               onClick={() => {
                 setAddingProject((current) => !current);
               }}
@@ -985,11 +990,10 @@ export default function Sidebar() {
                         render={
                           <SidebarMenuButton
                             size="sm"
-                            isActive={isProjectActive}
                             className={cn(
-                              "rounded gap-2.5 px-2.5 py-2 text-left hover:bg-accent/80 group-hover/project-header:bg-accent/80 group-hover/project-header:text-sidebar-accent-foreground",
+                              "rounded gap-2.5 px-2.5 py-2 text-left transition-colors hover:bg-accent/80 hover:text-foreground group-hover/project-header:bg-accent/80 group-hover/project-header:text-foreground",
                               isProjectActive &&
-                                "bg-primary/12 text-primary hover:bg-primary/15 hover:text-primary",
+                                "bg-primary/14 text-primary hover:bg-primary/16 hover:text-primary group-hover/project-header:bg-primary/16 group-hover/project-header:text-primary",
                             )}
                           />
                         }
@@ -1010,7 +1014,7 @@ export default function Sidebar() {
                         <span
                           className={cn(
                             "flex-1 truncate text-xs font-medium transition-colors",
-                            isProjectActive ? "text-primary" : "text-foreground/90",
+                            isProjectActive ? "text-primary" : "text-muted-foreground/70",
                           )}
                         >
                           {project.name}
@@ -1030,7 +1034,8 @@ export default function Sidebar() {
                               className={cn(
                                 "top-1 right-1 size-5 rounded p-0 text-muted-foreground/70",
                                 "hover:bg-accent/80 hover:text-foreground",
-                                isProjectActive && "text-primary hover:bg-primary/10 hover:text-primary",
+                                isProjectActive &&
+                                  "bg-primary/10 text-primary hover:bg-primary/14 hover:text-primary",
                               )}
                               onClick={(event) => {
                                 event.preventDefault();
@@ -1051,7 +1056,7 @@ export default function Sidebar() {
                     </div>
 
                     <CollapsibleContent>
-                      <SidebarMenuSub className="relative mx-0 my-1 w-full translate-x-0 gap-0 border-l-0 px-0 py-0 pl-7 before:absolute before:top-0 before:bottom-2 before:left-[1.125rem] before:w-px before:bg-border/60 before:content-['']">
+                      <SidebarMenuSub className="relative mx-0 my-1.5 w-full translate-x-0 gap-1 border-l-0 px-0 py-0 pl-7 before:absolute before:top-0 before:bottom-2 before:left-[1.125rem] before:w-px before:bg-border/60 before:content-['']">
                         {visibleThreads.map((thread) => {
                           const isActive = routeThreadId === thread.id;
                           const threadStatus = getThreadStatusPill(
@@ -1070,10 +1075,10 @@ export default function Sidebar() {
                                 render={<div role="button" tabIndex={0} />}
                                 size="sm"
                                 isActive={isActive}
-                                className={`group/thread-row h-7 w-full translate-x-0 cursor-default justify-start rounded px-2 text-left hover:bg-accent hover:text-foreground ${
+                                className={`group/thread-row h-auto min-h-7 w-full translate-x-0 cursor-default justify-start rounded px-2 py-1.5 text-left transition-colors ${
                                   isActive
-                                    ? "bg-accent/85 text-foreground font-medium ring-1 ring-border/70 dark:bg-accent/55 dark:ring-border/50"
-                                    : "text-muted-foreground"
+                                    ? "bg-accent/70 text-foreground font-medium"
+                                    : "text-muted-foreground/90 hover:bg-accent/55 hover:text-foreground"
                                 }`}
                                 onClick={() => {
                                   navigateToSingleThread(thread.id);
@@ -1091,7 +1096,7 @@ export default function Sidebar() {
                                   });
                                 }}
                               >
-                                <div className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+                                <div className="flex min-w-0 flex-1 items-center gap-2 text-left">
                                   {prStatus && (
                                     <Tooltip>
                                       <TooltipTrigger
@@ -1160,7 +1165,7 @@ export default function Sidebar() {
                                     </span>
                                   )}
                                 </div>
-                                <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                                <div className="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
                                   {terminalStatus && (
                                     <span
                                       role="img"
@@ -1204,7 +1209,7 @@ export default function Sidebar() {
                             <SidebarMenuSubButton
                               render={<button type="button" />}
                               size="sm"
-                              className="h-6 w-full translate-x-0 justify-start rounded px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
+                              className="h-6 w-full translate-x-0 justify-start rounded px-2 text-left text-[10px] text-muted-foreground/60 transition-colors hover:bg-accent/55 hover:text-foreground/80"
                               onClick={() => {
                                 expandThreadListForProject(project.id);
                               }}
@@ -1218,7 +1223,7 @@ export default function Sidebar() {
                             <SidebarMenuSubButton
                               render={<button type="button" />}
                               size="sm"
-                              className="h-6 w-full translate-x-0 justify-start rounded px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
+                              className="h-6 w-full translate-x-0 justify-start rounded px-2 text-left text-[10px] text-muted-foreground/60 transition-colors hover:bg-accent/55 hover:text-foreground/80"
                               onClick={() => {
                                 collapseThreadListForProject(project.id);
                               }}
