@@ -4,7 +4,7 @@ import * as FS from "node:fs";
 import * as OS from "node:os";
 import * as Path from "node:path";
 
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
 import * as Effect from "effect/Effect";
 import type {
@@ -19,6 +19,7 @@ import { NetService } from "@t3tools/shared/Net";
 import { RotatingFileSink } from "@t3tools/shared/logging";
 import { showDesktopConfirmDialog } from "./confirmDialog";
 import { fixPath } from "./fixPath";
+import { openExternalUrl } from "./openExternal";
 import {
   getAutoUpdateDisabledReason,
   shouldBroadcastDownloadProgress,
@@ -1064,12 +1065,7 @@ function registerIpcHandlers(): void {
       return false;
     }
 
-    try {
-      await shell.openExternal(parsedUrl.toString());
-      return true;
-    } catch {
-      return false;
-    }
+    return openExternalUrl(parsedUrl.toString());
   });
 
   ipcMain.removeHandler(UPDATE_GET_STATE_CHANNEL);
