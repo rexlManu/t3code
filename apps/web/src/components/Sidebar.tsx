@@ -1,5 +1,7 @@
 import {
+  CircleIcon,
   Columns2Icon,
+  CopyIcon,
   FolderIcon,
   FolderOpenIcon,
   GitPullRequestIcon,
@@ -7,6 +9,7 @@ import {
   RocketIcon,
   SquarePenIcon,
   TerminalIcon,
+  Trash2Icon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -46,6 +49,10 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import {
+  SidebarContextMenu,
+  type SidebarContextMenuEntry,
+} from "./SidebarContextMenu";
+import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
@@ -73,6 +80,43 @@ import {
 
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 const THREAD_PREVIEW_LIMIT = 6;
+
+type ThreadContextMenuAction =
+  | "rename"
+  | "mark-unread"
+  | "open-in-split"
+  | "copy-thread-id"
+  | "delete";
+type ProjectContextMenuAction = "delete";
+type SidebarMenuAction = ThreadContextMenuAction | ProjectContextMenuAction;
+
+type SidebarContextMenuState =
+  | {
+      kind: "thread";
+      id: ThreadId;
+      title: string;
+      position: { x: number; y: number };
+    }
+  | {
+      kind: "project";
+      id: ProjectId;
+      title: string;
+      position: { x: number; y: number };
+    };
+
+const THREAD_CONTEXT_MENU_ENTRIES: readonly SidebarContextMenuEntry<ThreadContextMenuAction>[] = [
+  { type: "item", id: "rename", label: "Rename thread", icon: SquarePenIcon },
+  { type: "item", id: "mark-unread", label: "Mark unread", icon: CircleIcon },
+  { type: "item", id: "open-in-split", label: "Open in split view", icon: Columns2Icon },
+  { type: "separator" },
+  { type: "item", id: "copy-thread-id", label: "Copy Thread ID", icon: CopyIcon },
+  { type: "separator" },
+  { type: "item", id: "delete", label: "Delete", icon: Trash2Icon, destructive: true },
+];
+
+const PROJECT_CONTEXT_MENU_ENTRIES: readonly SidebarContextMenuEntry<ProjectContextMenuAction>[] = [
+  { type: "item", id: "delete", label: "Delete project", icon: Trash2Icon, destructive: true },
+];
 
 async function copyTextToClipboard(text: string): Promise<void> {
   if (typeof navigator === "undefined" || navigator.clipboard?.writeText === undefined) {
@@ -218,6 +262,7 @@ export default function Sidebar() {
   const removeWorktreeMutation = useMutation(gitRemoveWorktreeMutationOptions({ queryClient }));
   const [addingProject, setAddingProject] = useState(false);
   const [newCwd, setNewCwd] = useState("");
+  const [contextMenuState, setContextMenuState] = useState<SidebarContextMenuState | null>(null);
   const [isPickingFolder, setIsPickingFolder] = useState(false);
   const [isAddingProject, setIsAddingProject] = useState(false);
   const [renamingThreadId, setRenamingThreadId] = useState<ThreadId | null>(null);
@@ -456,20 +501,10 @@ export default function Sidebar() {
     [],
   );
 
-  const handleThreadContextMenu = useCallback(
-    async (threadId: ThreadId, position: { x: number; y: number }) => {
+  const handleThreadContextMenuAction = useCallback(
+    async (threadId: ThreadId, clicked: ThreadContextMenuAction) => {
       const api = readNativeApi();
       if (!api) return;
-      const clicked = await api.contextMenu.show(
-        [
-          { id: "rename", label: "Rename thread" },
-          { id: "mark-unread", label: "Mark unread" },
-          { id: "open-in-split", label: "Open in split view" },
-          { id: "copy-thread-id", label: "Copy Thread ID" },
-          { id: "delete", label: "Delete", destructive: true },
-        ],
-        position,
-      );
       const thread = threads.find((t) => t.id === threadId);
       if (!thread) return;
 
@@ -632,14 +667,10 @@ export default function Sidebar() {
     ],
   );
 
-  const handleProjectContextMenu = useCallback(
-    async (projectId: ProjectId, position: { x: number; y: number }) => {
+  const handleProjectContextMenuAction = useCallback(
+    async (projectId: ProjectId, clicked: ProjectContextMenuAction) => {
       const api = readNativeApi();
       if (!api) return;
-      const clicked = await api.contextMenu.show(
-        [{ id: "delete", label: "Delete", destructive: true }],
-        position,
-      );
       if (clicked !== "delete") return;
 
       const project = projects.find((entry) => entry.id === projectId);
@@ -688,6 +719,56 @@ export default function Sidebar() {
       projects,
       threads,
     ],
+  );
+
+  const openThreadContextMenu = useCallback(
+    (threadId: ThreadId, position: { x: number; y: number }) => {
+      const thread = threads.find((entry) => entry.id === threadId);
+      if (!thread) return;
+      setContextMenuState({
+        kind: "thread",
+        id: threadId,
+        title: thread.title.trim() || "Untitled thread",
+        position,
+      });
+    },
+    [threads],
+  );
+
+  const openProjectContextMenu = useCallback(
+    (projectId: ProjectId, position: { x: number; y: number }) => {
+      const project = projects.find((entry) => entry.id === projectId);
+      if (!project) return;
+      setContextMenuState({
+        kind: "project",
+        id: projectId,
+        title: project.name,
+        position,
+      });
+    },
+    [projects],
+  );
+
+  const handleSidebarContextMenuOpenChange = useCallback((open: boolean) => {
+    if (!open) {
+      setContextMenuState(null);
+    }
+  }, []);
+
+  const handleSidebarContextMenuSelect = useCallback(
+    (action: SidebarMenuAction) => {
+      const activeMenu = contextMenuState;
+      setContextMenuState(null);
+      if (!activeMenu) return;
+
+      if (activeMenu.kind === "thread") {
+        void handleThreadContextMenuAction(activeMenu.id, action as ThreadContextMenuAction);
+        return;
+      }
+
+      void handleProjectContextMenuAction(activeMenu.id, action as ProjectContextMenuAction);
+    },
+    [contextMenuState, handleProjectContextMenuAction, handleThreadContextMenuAction],
   );
 
   useEffect(() => {
@@ -998,7 +1079,7 @@ export default function Sidebar() {
                         }
                         onContextMenu={(event) => {
                           event.preventDefault();
-                          void handleProjectContextMenu(project.id, {
+                          openProjectContextMenu(project.id, {
                             x: event.clientX,
                             y: event.clientY,
                           });
@@ -1084,7 +1165,7 @@ export default function Sidebar() {
                                 }}
                                 onContextMenu={(event) => {
                                   event.preventDefault();
-                                  void handleThreadContextMenu(thread.id, {
+                                  openThreadContextMenu(thread.id, {
                                     x: event.clientX,
                                     y: event.clientY,
                                   });
@@ -1275,6 +1356,20 @@ export default function Sidebar() {
           </SidebarFooter>
         </>
       ) : null}
+
+      <SidebarContextMenu
+        entries={
+          contextMenuState?.kind === "thread"
+            ? THREAD_CONTEXT_MENU_ENTRIES
+            : PROJECT_CONTEXT_MENU_ENTRIES
+        }
+        onOpenChange={handleSidebarContextMenuOpenChange}
+        onSelect={handleSidebarContextMenuSelect}
+        open={contextMenuState !== null}
+        position={contextMenuState?.position ?? null}
+        sectionLabel={contextMenuState?.kind === "thread" ? "Thread actions" : "Project actions"}
+        title={contextMenuState?.title ?? ""}
+      />
     </>
   );
 }
