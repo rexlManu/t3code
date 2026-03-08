@@ -1,11 +1,22 @@
 import { ThreadId } from "@t3tools/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Suspense, lazy, type ReactNode, useCallback, useEffect } from "react";
+import { Suspense, lazy, type ReactNode, useCallback, useEffect, useMemo } from "react";
 
 import ChatView from "../components/ChatView";
+import ChatSplitView from "../components/ChatSplitView";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
 import { useMediaQuery } from "../hooks/useMediaQuery";
+import {
+  MAX_SPLIT_PANES,
+  PANE_CAPACITY_BREAKPOINTS,
+  buildPaneIds,
+  parseSplitViewRouteSearch,
+  promoteSplitPane,
+  removeSplitPane,
+  reorderSplitPane,
+  stripSplitSearchParams,
+} from "../splitViewRouteSearch";
 import { useStore } from "../store";
 import { Sheet, SheetPopup } from "../components/ui/sheet";
 import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
@@ -134,18 +145,34 @@ const DiffPanelInlineSidebar = (props: {
 
 function ChatThreadRouteView() {
   const threadsHydrated = useStore((store) => store.threadsHydrated);
+  const threads = useStore((store) => store.threads);
   const navigate = useNavigate();
   const threadId = Route.useParams({
     select: (params) => ThreadId.makeUnsafe(params.threadId),
   });
   const search = Route.useSearch();
-  const threadExists = useStore((store) => store.threads.some((thread) => thread.id === threadId));
-  const draftThreadExists = useComposerDraftStore(
-    (store) => Object.hasOwn(store.draftThreadsByThreadId, threadId),
+  const draftThreadsByThreadId = useComposerDraftStore((store) => store.draftThreadsByThreadId);
+  const threadExists = useMemo(
+    () => threads.some((thread) => thread.id === threadId),
+    [threadId, threads],
+  );
+  const draftThreadExists = useMemo(
+    () => Object.hasOwn(draftThreadsByThreadId, threadId),
+    [draftThreadsByThreadId, threadId],
   );
   const routeThreadExists = threadExists || draftThreadExists;
   const diffOpen = search.diff === "1";
-  const shouldUseDiffSheet = useMediaQuery(DIFF_INLINE_LAYOUT_MEDIA_QUERY);
+  const isDoubleCapacity = useMediaQuery(PANE_CAPACITY_BREAKPOINTS.double);
+  const isTripleCapacity = useMediaQuery(PANE_CAPACITY_BREAKPOINTS.triple);
+  const maxPanes = isTripleCapacity ? 3 : isDoubleCapacity ? 2 : 1;
+  const validIds = useMemo(
+    () => new Set([...threads.map((thread) => thread.id), ...Object.keys(draftThreadsByThreadId)]),
+    [draftThreadsByThreadId, threads],
+  );
+  const rawPaneIds = buildPaneIds(threadId, search.split, MAX_SPLIT_PANES);
+  const paneIds = rawPaneIds.filter((id, index) => index === 0 || validIds.has(id)).slice(0, maxPanes);
+  const isSplitActive = paneIds.length > 1;
+  const shouldUseDiffSheet = useMediaQuery(DIFF_INLINE_LAYOUT_MEDIA_QUERY) || isSplitActive;
   const closeDiff = useCallback(() => {
     void navigate({
       to: "/$threadId",
@@ -155,6 +182,7 @@ function ChatThreadRouteView() {
       },
     });
   }, [navigate, threadId]);
+
   const openDiff = useCallback(() => {
     void navigate({
       to: "/$threadId",
@@ -165,6 +193,68 @@ function ChatThreadRouteView() {
       },
     });
   }, [navigate, threadId]);
+
+  const closePane = useCallback(
+    (closeId: ThreadId) => {
+      const { primaryId: newPrimary, splitParam: newSplit } = removeSplitPane(
+        threadId,
+        search.split,
+        closeId,
+      );
+      const isChangingPrimary = newPrimary !== threadId;
+      void navigate({
+        to: "/$threadId",
+        params: { threadId: newPrimary },
+        search: (previous) => {
+          const withoutSplit = stripSplitSearchParams(previous);
+          const base = isChangingPrimary ? stripDiffSearchParams(withoutSplit) : withoutSplit;
+          return newSplit ? { ...base, split: newSplit } : base;
+        },
+      });
+    },
+    [navigate, search.split, threadId],
+  );
+
+  const promotePane = useCallback(
+    (promoteId: ThreadId) => {
+      const { primaryId: newPrimary, splitParam: newSplit } = promoteSplitPane(
+        threadId,
+        search.split,
+        promoteId,
+      );
+      void navigate({
+        to: "/$threadId",
+        params: { threadId: newPrimary },
+        search: (previous) => {
+          const base = stripDiffSearchParams(stripSplitSearchParams(previous));
+          return newSplit ? { ...base, split: newSplit } : base;
+        },
+      });
+    },
+    [navigate, search.split, threadId],
+  );
+
+  const reorderPane = useCallback(
+    (draggedId: ThreadId, targetId: ThreadId) => {
+      const { primaryId: newPrimary, splitParam: newSplit } = reorderSplitPane(
+        threadId,
+        search.split,
+        draggedId,
+        targetId,
+      );
+      const isChangingPrimary = newPrimary !== threadId;
+      void navigate({
+        to: "/$threadId",
+        params: { threadId: newPrimary },
+        search: (previous) => {
+          const withoutSplit = stripSplitSearchParams(previous);
+          const base = isChangingPrimary ? stripDiffSearchParams(withoutSplit) : withoutSplit;
+          return newSplit ? { ...base, split: newSplit } : base;
+        },
+      });
+    },
+    [navigate, search.split, threadId],
+  );
 
   useEffect(() => {
     if (!threadsHydrated) {
@@ -179,6 +269,27 @@ function ChatThreadRouteView() {
 
   if (!threadsHydrated || !routeThreadExists) {
     return null;
+  }
+
+  if (isSplitActive) {
+    return (
+      <>
+        <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+          <ChatSplitView
+            paneIds={paneIds}
+            primaryId={threadId}
+            onClosePane={closePane}
+            onPromotePane={promotePane}
+            onReorderPane={reorderPane}
+          />
+        </SidebarInset>
+        <DiffPanelSheet diffOpen={diffOpen} onCloseDiff={closeDiff}>
+          <Suspense fallback={<DiffLoadingFallback inline={false} />}>
+            <DiffPanel mode="sheet" />
+          </Suspense>
+        </DiffPanelSheet>
+      </>
+    );
   }
 
   if (!shouldUseDiffSheet) {
@@ -207,6 +318,9 @@ function ChatThreadRouteView() {
 }
 
 export const Route = createFileRoute("/_chat/$threadId")({
-  validateSearch: (search) => parseDiffRouteSearch(search),
+  validateSearch: (search) => ({
+    ...parseDiffRouteSearch(search),
+    ...parseSplitViewRouteSearch(search),
+  }),
   component: ChatThreadRouteView,
 });
