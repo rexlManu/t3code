@@ -1,8 +1,8 @@
 import type { DesktopWindowState } from "@t3tools/contracts";
 import type { ReactNode } from "react";
-import { MinusIcon, XIcon } from "lucide-react";
+import { MinusIcon, TerminalIcon, XIcon } from "lucide-react";
 
-import { APP_BASE_NAME, APP_STAGE_LABEL } from "../branding";
+import { APP_BASE_NAME } from "../branding";
 import { useDesktopWindowState } from "../hooks/useDesktopWindowState";
 import { cn } from "../lib/utils";
 
@@ -68,27 +68,21 @@ function TitleBarBrand(props: { focused: boolean }) {
     <div className="flex min-w-0 items-center gap-2">
       <span
         className={cn(
-          "truncate text-[10px] font-semibold tracking-[0.12em] uppercase transition-colors",
-          props.focused
-            ? "text-neutral-600 dark:text-neutral-400"
-            : "text-neutral-500 dark:text-neutral-500",
+          "inline-flex size-4 items-center justify-center text-primary transition-opacity",
+          !props.focused && "opacity-75",
         )}
       >
-        {APP_BASE_NAME}
+        <TerminalIcon className="size-[13px]" />
       </span>
       <span
         className={cn(
-          "h-3 w-px bg-border/70 dark:bg-white/[0.06]",
-          !props.focused && "opacity-60",
-        )}
-      />
-      <span
-        className={cn(
-          "text-[9px] font-medium tracking-[0.14em] uppercase transition-colors",
-          props.focused ? "text-muted-foreground dark:text-neutral-500" : "text-muted-foreground/75 dark:text-neutral-600",
+          "truncate text-[11px] font-semibold tracking-tight transition-colors",
+          props.focused
+            ? "text-foreground/78"
+            : "text-foreground/55",
         )}
       >
-        {APP_STAGE_LABEL}
+        {APP_BASE_NAME}
       </span>
     </div>
   );
@@ -108,24 +102,24 @@ function TitleBarWindowControls(props: { windowState: DesktopWindowState }) {
   };
 
   return (
-    <div className="no-drag ml-auto flex items-center gap-1">
+    <div className="no-drag ml-auto flex items-center">
       <WindowControlButton
         ariaLabel="Minimize window"
-        className="flex h-6 w-8 items-center justify-center rounded-[2px] border border-transparent text-muted-foreground/80 transition-colors hover:bg-accent/70 hover:text-foreground"
+        className="flex h-7 w-8 items-center justify-center text-muted-foreground/70 transition-colors hover:bg-foreground/5 hover:text-foreground"
         onClick={minimizeWindow}
       >
         <MinusIcon className="size-3" />
       </WindowControlButton>
       <WindowControlButton
         ariaLabel={props.windowState.isMaximized ? "Restore window" : "Maximize window"}
-        className="flex h-6 w-8 items-center justify-center rounded-[2px] border border-transparent text-muted-foreground/80 transition-colors hover:bg-accent/70 hover:text-foreground"
+        className="flex h-7 w-8 items-center justify-center text-muted-foreground/70 transition-colors hover:bg-foreground/5 hover:text-foreground"
         onClick={toggleMaximizeWindow}
       >
         <WindowControlGlyph maximized={props.windowState.isMaximized} />
       </WindowControlButton>
       <WindowControlButton
         ariaLabel="Close window"
-        className="flex h-6 w-8 items-center justify-center rounded-[2px] border border-transparent text-muted-foreground/80 transition-colors hover:border-red-500/20 hover:bg-red-500/14 hover:text-red-600 dark:hover:text-red-300"
+        className="flex h-7 w-8 items-center justify-center text-muted-foreground/70 transition-colors hover:bg-red-500/80 hover:text-white"
         onClick={closeWindow}
       >
         <XIcon className="size-3" />
@@ -140,17 +134,12 @@ export function DesktopTitleBar() {
   return (
     <header
       className={cn(
-        "drag-region relative z-20 flex h-7 shrink-0 items-center border-b border-border bg-background",
-        !windowState.isFocused && "opacity-[0.88]",
+        "drag-region relative z-20 flex h-7 shrink-0 items-center justify-between border-b border-border-subtle bg-surface px-3",
+        !windowState.isFocused && "opacity-[0.9]",
       )}
     >
-      <div className="flex min-w-0 items-center px-4">
-        <TitleBarBrand focused={windowState.isFocused} />
-      </div>
-      <div className="flex min-w-0 flex-1 items-center pl-2 pr-1">
-        <div className="min-w-0 flex-1" />
-        <TitleBarWindowControls windowState={windowState} />
-      </div>
+      <TitleBarBrand focused={windowState.isFocused} />
+      <TitleBarWindowControls windowState={windowState} />
     </header>
   );
 }
