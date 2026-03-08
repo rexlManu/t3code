@@ -5697,7 +5697,7 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
           <ChevronDownIcon aria-hidden="true" className="size-3 opacity-60" />
         </span>
       </MenuTrigger>
-      <MenuPopup align="start">
+      <MenuPopup align="start" className="!rounded before:!rounded-[calc(var(--radius)-1px)]">
         {props.provider === "codex" && props.codexRateLimits ? (
           <div className="px-2 py-2 border-b border-border/50">
             <div className="flex items-center gap-3 text-xs">
@@ -5751,7 +5751,7 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                   </span>
                 ) : null}
               </MenuSubTrigger>
-              <MenuSubPopup className="min-w-56 [--available-height:min(24rem,70vh)]">
+              <MenuSubPopup className="min-w-56 !rounded [--available-height:min(24rem,70vh)] before:!rounded-[calc(var(--radius)-1px)]">
                 {option.value === "opencode" &&
                 props.opencodeModelCatalog &&
                 props.opencodeModelCatalog.groups.length > 0 ? (
@@ -5769,7 +5769,7 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                               {props.opencodeModelCatalog.favorites.length}
                             </span>
                           </MenuSubTrigger>
-                          <MenuSubPopup className="min-w-64 [--available-height:min(24rem,70vh)]">
+                          <MenuSubPopup className="min-w-64 !rounded [--available-height:min(24rem,70vh)] before:!rounded-[calc(var(--radius)-1px)]">
                             <MenuGroup>
                               <MenuGroupLabel>Favorite models</MenuGroupLabel>
                               {renderProviderModelMenuItems({
@@ -5795,7 +5795,7 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                           <MenuSubTrigger disabled={isDisabledByProviderLock}>
                             <span>{group.name}</span>
                           </MenuSubTrigger>
-                          <MenuSubPopup className="min-w-64 [--available-height:min(24rem,70vh)]">
+                          <MenuSubPopup className="min-w-64 !rounded [--available-height:min(24rem,70vh)] before:!rounded-[calc(var(--radius)-1px)]">
                             <MenuGroup>
                               {renderProviderModelMenuItems({
                                 provider: option.value,
@@ -5911,7 +5911,7 @@ const ModelTraitsPicker = memo(function ModelTraitsPicker(props: {
         <span>{triggerLabel}</span>
         <ChevronDownIcon aria-hidden="true" className="size-3 opacity-60" />
       </MenuTrigger>
-      <MenuPopup align="start">
+      <MenuPopup align="start" className="!rounded before:!rounded-[calc(var(--radius)-1px)]">
         <MenuGroup>
           <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Reasoning</div>
           <MenuRadioGroup
