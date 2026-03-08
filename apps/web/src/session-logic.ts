@@ -7,6 +7,7 @@ import {
   type UserInputQuestion,
   type TurnId,
 } from "@t3tools/contracts";
+import { getProviderLabel, PROVIDER_ORDER } from "@t3tools/shared/provider";
 
 import type {
   ChatMessage,
@@ -16,18 +17,17 @@ import type {
   TurnDiffSummary,
 } from "./types";
 
-export type ProviderPickerKind = ProviderKind | "claudeCode" | "cursor";
+export type ProviderPickerKind = ProviderKind;
 
 export const PROVIDER_OPTIONS: Array<{
   value: ProviderPickerKind;
   label: string;
   available: boolean;
-}> = [
-  { value: "codex", label: "Codex", available: true },
-  { value: "opencode", label: "OpenCode", available: true },
-  { value: "claudeCode", label: "Claude Code", available: false },
-  { value: "cursor", label: "Cursor", available: false },
-];
+}> = PROVIDER_ORDER.map((provider) => ({
+  value: provider,
+  label: getProviderLabel(provider),
+  available: true,
+}));
 
 export interface WorkLogEntry {
   id: string;
@@ -46,6 +46,8 @@ export interface WorkLogEntry {
     itemType?: string;
     input?: string;
     output?: string;
+    targetPath?: string;
+    compact?: "path";
   };
   tone: "thinking" | "tool" | "info" | "error";
 }
@@ -427,13 +429,15 @@ export function deriveWorkLogEntries(
   const visibleActivities = ordered
     .filter((activity) => (latestTurnId ? activity.turnId === latestTurnId : true))
     .filter((activity) => !shouldHideWorkLogActivity(activity, provider))
-  return mergeReasoningActivities(visibleActivities).map((activity) => {
+  return mergeReasoningActivities(visibleActivities)
+    .map((activity) => {
       const payload =
         activity.payload && typeof activity.payload === "object"
           ? (activity.payload as Record<string, unknown>)
           : null;
       const command = extractToolCommand(payload);
       const changedFiles = extractChangedFiles(payload);
+      const toolName = resolveToolName(payload);
       const entry: WorkLogEntry = {
         id: activity.id,
         createdAt: activity.createdAt,
@@ -445,16 +449,18 @@ export function deriveWorkLogEntries(
               ? "info"
               : activity.tone,
       };
-      if (payload && typeof payload.detail === "string" && payload.detail.length > 0) {
+      if (
+        payload &&
+        typeof payload.detail === "string" &&
+        payload.detail.length > 0 &&
+        !shouldHideToolDetail(payload.detail, toolName)
+      ) {
         entry.detail = payload.detail;
       }
       if (command) {
         entry.command = command;
       }
-      if (
-        changedFiles.length > 0 &&
-        (payload?.itemType === "file_change" || payload?.itemType === "command_execution")
-      ) {
+      if (shouldSurfaceChangedFiles(payload, activity.summary, changedFiles)) {
         entry.changedFiles = changedFiles;
       }
       const toolCall = extractToolCall(payload, command);
@@ -462,13 +468,18 @@ export function deriveWorkLogEntries(
         entry.toolCall = toolCall;
       }
       return entry;
-    });
+    })
+    .filter((entry) => !isEmptyGenericToolEntry(entry));
 }
 
 function shouldHideWorkLogActivity(
   activity: OrchestrationThreadActivity,
   provider?: ProviderKind | null,
 ): boolean {
+  const payload =
+    activity.payload && typeof activity.payload === "object"
+      ? (activity.payload as Record<string, unknown>)
+      : null;
   if (activity.kind === "tool.started") {
     return true;
   }
@@ -476,6 +487,9 @@ function shouldHideWorkLogActivity(
     return true;
   }
   if (activity.summary === "Checkpoint captured") {
+    return true;
+  }
+  if (isInternalPlanToolActivity(payload)) {
     return true;
   }
   if (provider !== "opencode") {
@@ -564,22 +578,141 @@ function normalizeCommandValue(value: unknown): string | null {
   return parts.length > 0 ? parts.join(" ") : null;
 }
 
-function extractToolCommand(payload: Record<string, unknown> | null): string | null {
+function normalizeToolName(value: string | null | undefined): string {
+  return value?.trim().toLowerCase().replace(/[\s_-]+/g, "") ?? "";
+}
+
+function isPathLookupToolName(name: string | null | undefined): boolean {
+  const normalized = normalizeToolName(name);
+  return (
+    normalized === "read" ||
+    normalized === "cat" ||
+    normalized === "glob" ||
+    normalized === "grep" ||
+    normalized === "list" ||
+    normalized === "ls" ||
+    normalized.includes("readfile") ||
+    normalized.includes("glob") ||
+    normalized.includes("grep") ||
+    normalized.includes("listfiles")
+  );
+}
+
+function isInternalPlanToolName(name: string | null | undefined): boolean {
+  const normalized = normalizeToolName(name);
+  return normalized === "todowrite" || normalized === "todo";
+}
+
+function isGenericToolName(name: string | null | undefined): boolean {
+  const normalized = normalizeToolName(name);
+  return normalized === "tool" || normalized === "geminitool";
+}
+
+function toolPayloadState(payload: Record<string, unknown> | null) {
   const data = asRecord(payload?.data);
   const item = asRecord(data?.item);
+  const state = asRecord(item?.state);
+  const stateInput = asRecord(state?.input);
+  const dataInput = asRecord(data?.input);
+  const parameters = asRecord(data?.parameters);
+  const rawInput = asRecord(data?.rawInput);
+  const locations = Array.isArray(data?.locations) ? data.locations : null;
+  return {
+    data,
+    item,
+    state,
+    stateInput,
+    dataInput,
+    parameters,
+    rawInput,
+    locations,
+  };
+}
+
+function inferToolNameFromInput(
+  input: Record<string, unknown> | null,
+  locations: ReadonlyArray<unknown> | null,
+): string | null {
+  if (!input) {
+    if (Array.isArray(locations) && locations.length > 0) {
+      return "read";
+    }
+    return null;
+  }
+  if (
+    asTrimmedString(input.filePath) ||
+    asTrimmedString(input.file_path) ||
+    asTrimmedString(input.relativePath) ||
+    asTrimmedString(input.relative_path) ||
+    asTrimmedString(input.uri)
+  ) {
+    return "read";
+  }
+  if (asTrimmedString(input.pattern) && asTrimmedString(input.path)) {
+    return "glob";
+  }
+  if (asTrimmedString(input.query) || asTrimmedString(input.regex)) {
+    return "grep";
+  }
+  if (asTrimmedString(input.path) && Array.isArray(locations) && locations.length > 0) {
+    return "grep";
+  }
+  return null;
+}
+
+function resolveToolName(payload: Record<string, unknown> | null): string | null {
+  const { data, item, stateInput, dataInput, parameters, rawInput, locations } =
+    toolPayloadState(payload);
+  const candidates = [
+    asTrimmedString(item?.tool),
+    asTrimmedString(payload?.title),
+    asTrimmedString(data?.toolName),
+    asTrimmedString(data?.tool_name),
+    asTrimmedString(data?.title),
+    asTrimmedString(data?.name),
+    asTrimmedString(data?.tool),
+    asTrimmedString(data?.toolKind),
+    asTrimmedString(data?.tool_kind),
+    asTrimmedString(parameters?.tool),
+    asTrimmedString(parameters?.name),
+    asTrimmedString(rawInput?.tool),
+    asTrimmedString(rawInput?.name),
+    inferToolNameFromInput(stateInput, locations),
+    inferToolNameFromInput(dataInput, locations),
+    inferToolNameFromInput(parameters, locations),
+    inferToolNameFromInput(rawInput, locations),
+  ];
+  return (
+    candidates.find(
+      (candidate): candidate is string =>
+        candidate !== null && candidate.length > 0 && !isGenericToolName(candidate),
+    ) ?? null
+  );
+}
+
+function isInternalPlanToolActivity(payload: Record<string, unknown> | null): boolean {
+  return isInternalPlanToolName(resolveToolName(payload));
+}
+
+function extractToolCommand(payload: Record<string, unknown> | null): string | null {
+  const { data, item, state, stateInput, dataInput, rawInput } = toolPayloadState(payload);
   const itemResult = asRecord(item?.result);
   const itemInput = asRecord(item?.input);
-  const itemState = asRecord(item?.state);
-  const itemStateInput = asRecord(itemState?.input);
   const candidates = [
     normalizeCommandValue(item?.command),
     normalizeCommandValue(itemInput?.command),
     normalizeCommandValue(itemInput?.cmd),
     normalizeCommandValue(itemInput?.argv),
-    normalizeCommandValue(itemStateInput?.command),
-    normalizeCommandValue(itemStateInput?.cmd),
-    normalizeCommandValue(itemStateInput?.argv),
-    normalizeCommandValue(itemState?.raw),
+    normalizeCommandValue(stateInput?.command),
+    normalizeCommandValue(stateInput?.cmd),
+    normalizeCommandValue(stateInput?.argv),
+    normalizeCommandValue(dataInput?.command),
+    normalizeCommandValue(dataInput?.cmd),
+    normalizeCommandValue(dataInput?.argv),
+    normalizeCommandValue(rawInput?.command),
+    normalizeCommandValue(rawInput?.cmd),
+    normalizeCommandValue(rawInput?.argv),
+    normalizeCommandValue(state?.raw),
     normalizeCommandValue(itemResult?.command),
     normalizeCommandValue(data?.command),
   ];
@@ -661,18 +794,80 @@ function summarizeToolInput(
   return summary;
 }
 
+function summarizeToolTargetPath(value: unknown): string | null {
+  const direct = asTrimmedString(value);
+  if (direct) {
+    return direct;
+  }
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const candidate = value
+    .map((entry) => summarizeToolTargetPath(entry))
+    .find((entry): entry is string => entry !== null);
+  return candidate ?? null;
+}
+
+function extractToolTargetPath(payload: Record<string, unknown> | null): string | null {
+  const { data, stateInput, dataInput, parameters, rawInput, locations } = toolPayloadState(payload);
+  const candidateRecords = [stateInput, dataInput, parameters, rawInput];
+  for (const record of candidateRecords) {
+    if (!record) {
+      continue;
+    }
+    const pathCandidate =
+      summarizeToolTargetPath(record.filePath) ??
+      summarizeToolTargetPath(record.file_path) ??
+      summarizeToolTargetPath(record.path) ??
+      summarizeToolTargetPath(record.relativePath) ??
+      summarizeToolTargetPath(record.relative_path) ??
+      summarizeToolTargetPath(record.filename) ??
+      summarizeToolTargetPath(record.newPath) ??
+      summarizeToolTargetPath(record.new_path) ??
+      summarizeToolTargetPath(record.oldPath) ??
+      summarizeToolTargetPath(record.old_path) ??
+      summarizeToolTargetPath(record.uri);
+    if (pathCandidate) {
+      return pathCandidate;
+    }
+  }
+
+  if (Array.isArray(locations)) {
+    for (const location of locations) {
+      const record = asRecord(location);
+      if (!record) {
+        continue;
+      }
+      const pathCandidate =
+        summarizeToolTargetPath(record.path) ??
+        summarizeToolTargetPath(record.filePath) ??
+        summarizeToolTargetPath(record.file_path) ??
+        summarizeToolTargetPath(record.uri);
+      if (pathCandidate) {
+        return pathCandidate;
+      }
+    }
+  }
+
+  return (
+    summarizeToolTargetPath(data?.filePath) ??
+    summarizeToolTargetPath(data?.file_path) ??
+    summarizeToolTargetPath(data?.path) ??
+    summarizeToolTargetPath(data?.relativePath) ??
+    summarizeToolTargetPath(data?.relative_path) ??
+    null
+  );
+}
+
 function extractToolCall(
   payload: Record<string, unknown> | null,
   command: string | null,
 ): WorkLogEntry["toolCall"] | undefined {
   const itemType = asTrimmedString(payload?.itemType);
   const status = asTrimmedString(payload?.status);
-  const data = asRecord(payload?.data);
-  const item = asRecord(data?.item);
-  const state = asRecord(item?.state);
-  const stateInput = asRecord(state?.input);
+  const { state, stateInput, dataInput, parameters, rawInput } = toolPayloadState(payload);
   const metadata = asRecord(state?.metadata);
-  const name = asTrimmedString(item?.tool);
+  const name = resolveToolName(payload);
 
   if (!name && !itemType) {
     return undefined;
@@ -684,7 +879,10 @@ function extractToolCall(
     ...(itemType ? { itemType } : {}),
   };
 
-  const inputPreview = summarizeToolInput(stateInput, command);
+  const targetPath = extractToolTargetPath(payload);
+  const toolInput = stateInput ?? dataInput ?? parameters ?? rawInput;
+  const inputPreview =
+    isPathLookupToolName(name) && targetPath ? targetPath : summarizeToolInput(toolInput, command);
   const outputPreview =
     status === "failed"
       ? stringifyPreview(state?.error) ??
@@ -697,6 +895,10 @@ function extractToolCall(
   }
   if (outputPreview) {
     toolCall.output = outputPreview;
+  }
+  if (isPathLookupToolName(name) && targetPath) {
+    toolCall.targetPath = targetPath;
+    toolCall.compact = "path";
   }
 
   return toolCall;
@@ -762,10 +964,14 @@ function collectChangedFiles(
 
   pushChangedFile(target, seen, record.path, record);
   pushChangedFile(target, seen, record.filePath, record);
+  pushChangedFile(target, seen, record.file_path, record);
   pushChangedFile(target, seen, record.relativePath, record);
+  pushChangedFile(target, seen, record.relative_path, record);
   pushChangedFile(target, seen, record.filename, record);
   pushChangedFile(target, seen, record.newPath, record);
+  pushChangedFile(target, seen, record.new_path, record);
   pushChangedFile(target, seen, record.oldPath, record);
+  pushChangedFile(target, seen, record.old_path, record);
 
   for (const nestedKey of [
     "item",
@@ -789,12 +995,119 @@ function collectChangedFiles(
   }
 }
 
+function collectChangedFilesFromText(
+  value: string | null,
+  target: Array<{ path: string; additions?: number; deletions?: number }>,
+  seen: Map<string, number>,
+) {
+  if (!value) {
+    return;
+  }
+
+  const normalized = value.replace(/\r\n/g, "\n");
+  const updatedFilesMatch = normalized.match(/updated the following files:\s*([^\n]+)/i);
+  if (updatedFilesMatch?.[1]) {
+    const fragments = updatedFilesMatch[1]
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    for (const fragment of fragments) {
+      const cleaned = fragment.replace(/^(?:[A-Z?]{1,3})\s+/, "").trim();
+      if (cleaned.includes("/")) {
+        pushChangedFile(target, seen, cleaned);
+      }
+    }
+  }
+
+  for (const rawLine of normalized.split("\n")) {
+    const line = rawLine.trim();
+    if (line.length === 0 || !line.includes("/")) {
+      continue;
+    }
+    const cleaned = line
+      .replace(/^[•*-]\s+/, "")
+      .replace(/^(?:[A-Z?]{1,3})\s+/, "")
+      .replace(/\s+complete$/i, "")
+      .trim();
+    if (
+      cleaned.length === 0 ||
+      cleaned.includes(" ") ||
+      !/[./]/.test(cleaned) ||
+      cleaned.startsWith("filePath:") ||
+      cleaned.startsWith("path:")
+    ) {
+      continue;
+    }
+    pushChangedFile(target, seen, cleaned);
+  }
+}
+
+function shouldSurfaceChangedFiles(
+  payload: Record<string, unknown> | null,
+  label: string,
+  changedFiles: ReadonlyArray<{ path: string; additions?: number; deletions?: number }>,
+): boolean {
+  if (changedFiles.length === 0) {
+    return false;
+  }
+  const itemType = asTrimmedString(payload?.itemType);
+  if (itemType === "file_change" || itemType === "command_execution") {
+    return true;
+  }
+
+  const toolName = resolveToolName(payload);
+  if (toolName && isPathLookupToolName(toolName)) {
+    return false;
+  }
+
+  const detail = asTrimmedString(payload?.detail)?.toLowerCase() ?? "";
+  const normalizedLabel = label.toLowerCase();
+  return (
+    detail.includes("updated the following files") ||
+    normalizedLabel.includes("patch applied") ||
+    normalizedLabel.includes("file change") ||
+    normalizedLabel.includes("updated")
+  );
+}
+
+function shouldHideToolDetail(detail: string | undefined, toolName: string | null): boolean {
+  if (!detail) {
+    return false;
+  }
+  const trimmed = detail.trim();
+  if (trimmed === "{}") {
+    return true;
+  }
+  return toolName !== null && trimmed === `${toolName}: {}`;
+}
+
+function isEmptyGenericToolEntry(entry: WorkLogEntry): boolean {
+  if (entry.tone !== "tool" || !entry.toolCall) {
+    return false;
+  }
+  if (entry.command || (entry.changedFiles?.length ?? 0) > 0) {
+    return false;
+  }
+  if (entry.toolCall.input || entry.toolCall.output || entry.detail) {
+    return false;
+  }
+  return (
+    entry.label === "Tool call complete" ||
+    entry.label === "Tool call" ||
+    entry.label === "File change complete" ||
+    entry.label === "File change"
+  );
+}
+
 function extractChangedFiles(
   payload: Record<string, unknown> | null,
 ): Array<{ path: string; additions?: number; deletions?: number }> {
   const data = asRecord(payload?.data);
   const changedFiles: Array<{ path: string; additions?: number; deletions?: number }> = [];
-  collectChangedFiles(data, changedFiles, new Map<string, number>(), 0);
+  const seen = new Map<string, number>();
+  collectChangedFiles(data, changedFiles, seen, 0);
+  collectChangedFilesFromText(asTrimmedString(payload?.detail), changedFiles, seen);
+  collectChangedFilesFromText(asTrimmedString(payload?.title), changedFiles, seen);
   return changedFiles;
 }
 

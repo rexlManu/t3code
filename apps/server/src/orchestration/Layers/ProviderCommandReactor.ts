@@ -12,6 +12,7 @@ import {
   type RuntimeMode,
   type TurnId,
 } from "@t3tools/contracts";
+import { PROVIDER_ORDER } from "@t3tools/shared/provider";
 import { Cache, Cause, Duration, Effect, Layer, Option, Queue, Schema, Stream } from "effect";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
@@ -213,8 +214,8 @@ const make = Effect.gen(function* () {
 
     const desiredRuntimeMode = thread.runtimeMode;
     const currentProvider: ProviderKind | undefined =
-      thread.session?.providerName === "codex" || thread.session?.providerName === "opencode"
-        ? thread.session.providerName
+      thread.session?.providerName && PROVIDER_ORDER.includes(thread.session.providerName as ProviderKind)
+        ? (thread.session.providerName as ProviderKind)
         : undefined;
     const preferredProvider: ProviderKind | undefined = options?.provider ?? currentProvider;
     const desiredModel = options?.model ?? thread.model;

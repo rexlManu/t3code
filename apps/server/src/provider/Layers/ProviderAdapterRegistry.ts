@@ -15,7 +15,11 @@ import {
   ProviderAdapterRegistry,
   type ProviderAdapterRegistryShape,
 } from "../Services/ProviderAdapterRegistry.ts";
+import { ClaudeCodeAdapter } from "../Services/ClaudeCodeAdapter.ts";
 import { CodexAdapter } from "../Services/CodexAdapter.ts";
+import { CopilotAdapter } from "../Services/CopilotAdapter.ts";
+import { CursorAdapter } from "../Services/CursorAdapter.ts";
+import { GeminiAdapter } from "../Services/GeminiAdapter.ts";
 import { OpenCodeAdapter } from "../Services/OpenCodeAdapter.ts";
 
 export interface ProviderAdapterRegistryLiveOptions {
@@ -30,6 +34,22 @@ const makeProviderAdapterRegistry = (options?: ProviderAdapterRegistryLiveOption
         : [
             yield* CodexAdapter,
             ...Option.match(yield* Effect.serviceOption(OpenCodeAdapter), {
+              onNone: () => [],
+              onSome: (adapter) => [adapter],
+            }),
+            ...Option.match(yield* Effect.serviceOption(CopilotAdapter), {
+              onNone: () => [],
+              onSome: (adapter) => [adapter],
+            }),
+            ...Option.match(yield* Effect.serviceOption(ClaudeCodeAdapter), {
+              onNone: () => [],
+              onSome: (adapter) => [adapter],
+            }),
+            ...Option.match(yield* Effect.serviceOption(CursorAdapter), {
+              onNone: () => [],
+              onSome: (adapter) => [adapter],
+            }),
+            ...Option.match(yield* Effect.serviceOption(GeminiAdapter), {
               onNone: () => [],
               onSome: (adapter) => [adapter],
             }),

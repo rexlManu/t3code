@@ -17,12 +17,14 @@ import { Data, Effect, Layer, Option, Result, Stream } from 'effect';
 import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process';
 
 import { ServerConfig } from '../../config';
+import { resolveGeminiCliLaunchSpec } from '../../cliEnvironment';
 import { fetchOpenCodeModels } from '../../opencodeServerManager';
 import {
   formatCodexCliUpgradeMessage,
   isCodexCliVersionSupported,
   parseCodexCliVersion,
 } from '../codexCliVersion';
+import { resolveBundledCopilotCliPath } from './copilotCliPath';
 import {
   ProviderHealth,
   type ProviderHealthShape,
@@ -31,6 +33,10 @@ import {
 const DEFAULT_TIMEOUT_MS = 4_000;
 const DEFAULT_OPENCODE_SERVER_URL = 'http://127.0.0.1:6733';
 const CODEX_PROVIDER = 'codex' as const;
+const COPILOT_PROVIDER = 'copilot' as const;
+const CLAUDE_CODE_PROVIDER = 'claudeCode' as const;
+const CURSOR_PROVIDER = 'cursor' as const;
+const GEMINI_PROVIDER = 'gemini' as const;
 const OPENCODE_PROVIDER = 'opencode' as const;
 
 class OpenCodeModelDiscoveryError extends Data.TaggedError(
@@ -267,6 +273,72 @@ const runCodexCommand = (args: ReadonlyArray<string>) =>
 const runOpenCodeCommand = (args: ReadonlyArray<string>) =>
   runCommand('opencode', args);
 
+function checkCliProviderStatus(input: {
+  provider: ServerProviderStatus['provider'];
+  displayName: string;
+  command: string;
+  args?: ReadonlyArray<string>;
+  missingMessage: string;
+  successMessage: string;
+}): Effect.Effect<ServerProviderStatus, never, ChildProcessSpawner.ChildProcessSpawner> {
+  return Effect.gen(function* () {
+    const checkedAt = new Date().toISOString();
+    const probe = yield* runCommand(input.command, input.args ?? ['--version']).pipe(
+      Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+      Effect.result,
+    );
+
+    if (Result.isFailure(probe)) {
+      const error = probe.failure;
+      return {
+        provider: input.provider,
+        status: 'error' as const,
+        available: false,
+        authStatus: 'unknown' as const,
+        checkedAt,
+        message: isSpecificCommandMissingCause(input.command, error)
+          ? input.missingMessage
+          : `Failed to execute ${input.displayName} health check: ${error instanceof Error ? error.message : String(error)}.`,
+      };
+    }
+
+    if (Option.isNone(probe.success)) {
+      return {
+        provider: input.provider,
+        status: 'warning' as const,
+        available: false,
+        authStatus: 'unknown' as const,
+        checkedAt,
+        message: `${input.displayName} health check timed out.`,
+      };
+    }
+
+    const result = probe.success.value;
+    if (result.code !== 0) {
+      const detail = detailFromResult(result);
+      return {
+        provider: input.provider,
+        status: 'warning' as const,
+        available: false,
+        authStatus: 'unknown' as const,
+        checkedAt,
+        message: detail
+          ? `${input.displayName} is installed but failed to run. ${detail}`
+          : `${input.displayName} is installed but failed to run.`,
+      };
+    }
+
+    return {
+      provider: input.provider,
+      status: 'ready' as const,
+      available: true,
+      authStatus: 'unknown' as const,
+      checkedAt,
+      message: input.successMessage,
+    };
+  });
+}
+
 // ── Health check ────────────────────────────────────────────────────
 
 export const checkCodexProviderStatus: Effect.Effect<
@@ -441,6 +513,75 @@ export const checkOpenCodeProviderStatus: Effect.Effect<
   } satisfies ServerProviderStatus;
 });
 
+export const checkCopilotProviderStatus: Effect.Effect<
+  ServerProviderStatus,
+  never,
+  ChildProcessSpawner.ChildProcessSpawner
+> = Effect.gen(function* () {
+  const bundledCliPath = resolveBundledCopilotCliPath();
+  if (bundledCliPath) {
+    return {
+      provider: COPILOT_PROVIDER,
+      status: 'ready' as const,
+      available: true,
+      authStatus: 'unknown' as const,
+      checkedAt: new Date().toISOString(),
+      message: 'GitHub Copilot runtime is available.',
+    } satisfies ServerProviderStatus;
+  }
+
+  return yield* checkCliProviderStatus({
+    provider: COPILOT_PROVIDER,
+    displayName: 'GitHub Copilot CLI',
+    command: 'copilot',
+    missingMessage: 'GitHub Copilot CLI is not installed and no bundled runtime was found.',
+    successMessage: 'GitHub Copilot CLI is available.',
+  });
+});
+
+export const checkClaudeCodeProviderStatus = checkCliProviderStatus({
+  provider: CLAUDE_CODE_PROVIDER,
+  displayName: 'Claude Code CLI',
+  command: 'claude',
+  missingMessage: 'Claude Code CLI (`claude`) is not installed or not on PATH.',
+  successMessage: 'Claude Code CLI is available.',
+});
+
+export const checkCursorProviderStatus = checkCliProviderStatus({
+  provider: CURSOR_PROVIDER,
+  displayName: 'Cursor Agent CLI',
+  command: 'agent',
+  missingMessage: 'Cursor Agent CLI (`agent`) is not installed or not on PATH.',
+  successMessage: 'Cursor Agent CLI is available.',
+});
+
+export const checkGeminiProviderStatus: Effect.Effect<
+  ServerProviderStatus,
+  never,
+  ChildProcessSpawner.ChildProcessSpawner
+> = Effect.gen(function* () {
+  const launch = resolveGeminiCliLaunchSpec();
+  if (!launch) {
+    return {
+      provider: GEMINI_PROVIDER,
+      status: 'error' as const,
+      available: false,
+      authStatus: 'unknown' as const,
+      checkedAt: new Date().toISOString(),
+      message: 'Gemini CLI is not installed or could not be resolved.',
+    } satisfies ServerProviderStatus;
+  }
+
+  return yield* checkCliProviderStatus({
+    provider: GEMINI_PROVIDER,
+    displayName: 'Gemini CLI',
+    command: launch.command,
+    args: [...launch.argsPrefix, '--version'],
+    missingMessage: 'Gemini CLI is not installed or could not be resolved.',
+    successMessage: 'Gemini CLI is available.',
+  });
+});
+
 const resolveOpenCodeProviderStatus = (directory: string) =>
   Effect.gen(function* () {
     const opencodeBaseStatus = yield* checkOpenCodeProviderStatus;
@@ -521,6 +662,38 @@ export const ProviderHealthLive = Layer.effect(
         checkedAt: new Date().toISOString(),
         message: 'Checking OpenCode availability...',
       },
+      {
+        provider: COPILOT_PROVIDER,
+        status: 'warning',
+        available: false,
+        authStatus: 'unknown',
+        checkedAt: new Date().toISOString(),
+        message: 'Checking GitHub Copilot availability...',
+      },
+      {
+        provider: CLAUDE_CODE_PROVIDER,
+        status: 'warning',
+        available: false,
+        authStatus: 'unknown',
+        checkedAt: new Date().toISOString(),
+        message: 'Checking Claude Code availability...',
+      },
+      {
+        provider: CURSOR_PROVIDER,
+        status: 'warning',
+        available: false,
+        authStatus: 'unknown',
+        checkedAt: new Date().toISOString(),
+        message: 'Checking Cursor availability...',
+      },
+      {
+        provider: GEMINI_PROVIDER,
+        status: 'warning',
+        available: false,
+        authStatus: 'unknown',
+        checkedAt: new Date().toISOString(),
+        message: 'Checking Gemini availability...',
+      },
     ];
 
     let readyListeners: Array<(statuses: ReadonlyArray<ServerProviderStatus>) => void> = [];
@@ -547,21 +720,50 @@ export const ProviderHealthLive = Layer.effect(
         resolveOpenCodeProviderStatus(serverConfig.cwd).pipe(
           Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
         ),
+        checkCopilotProviderStatus.pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        ),
+        checkClaudeCodeProviderStatus.pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        ),
+        checkCursorProviderStatus.pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        ),
+        checkGeminiProviderStatus.pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        ),
       ],
       { concurrency: 'unbounded' },
     )
       .pipe(Effect.runPromise)
-      .then(([codexStatus, opencodeStatus]) => {
-        notifyReady([codexStatus, opencodeStatus]);
-      })
+      .then(
+        ([
+          codexStatus,
+          opencodeStatus,
+          copilotStatus,
+          claudeCodeStatus,
+          cursorStatus,
+          geminiStatus,
+        ]) => {
+          notifyReady([
+            codexStatus,
+            opencodeStatus,
+            copilotStatus,
+            claudeCodeStatus,
+            cursorStatus,
+            geminiStatus,
+          ]);
+        },
+      )
       .catch(() => {
+        const checkedAt = new Date().toISOString();
         notifyReady([
           {
             provider: CODEX_PROVIDER,
             status: 'error',
             available: false,
             authStatus: 'unknown',
-            checkedAt: new Date().toISOString(),
+            checkedAt,
             message: 'Failed to check Codex CLI status.',
           },
           {
@@ -569,11 +771,44 @@ export const ProviderHealthLive = Layer.effect(
             status: 'error',
             available: false,
             authStatus: 'unknown',
-            checkedAt: new Date().toISOString(),
+            checkedAt,
             message: 'Failed to check OpenCode status.',
           },
+          {
+            provider: COPILOT_PROVIDER,
+            status: 'error',
+            available: false,
+            authStatus: 'unknown',
+            checkedAt,
+            message: 'Failed to check GitHub Copilot status.',
+          },
+          {
+            provider: CLAUDE_CODE_PROVIDER,
+            status: 'error',
+            available: false,
+            authStatus: 'unknown',
+            checkedAt,
+            message: 'Failed to check Claude Code status.',
+          },
+          {
+            provider: CURSOR_PROVIDER,
+            status: 'error',
+            available: false,
+            authStatus: 'unknown',
+            checkedAt,
+            message: 'Failed to check Cursor status.',
+          },
+          {
+            provider: GEMINI_PROVIDER,
+            status: 'error',
+            available: false,
+            authStatus: 'unknown',
+            checkedAt,
+            message: 'Failed to check Gemini status.',
+          },
         ]);
-      });
+      })
+      ;
 
     return {
       getStatuses: Effect.sync(() => cachedStatuses),

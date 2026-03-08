@@ -14,7 +14,6 @@ import {
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   type ResolvedKeybindingsConfig,
   type ProviderApprovalDecision,
-  type ServerCodexRateLimits,
   type ServerProviderModelCatalog,
   type ServerProviderStatus,
   type ProviderKind,
@@ -27,6 +26,7 @@ import {
 import {
   getDefaultModel,
   getDefaultReasoningEffort,
+  getModelOptions,
   getReasoningEffortOptions,
   normalizeModelSlug,
   resolveModelSlugForProvider,
@@ -53,7 +53,6 @@ import {
 import { gitBranchesQueryOptions, gitCreateWorktreeMutationOptions } from "~/lib/gitReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import {
-  serverCodexRateLimitsQueryOptions,
   serverConfigQueryOptions,
   serverQueryKeys,
 } from "~/lib/serverReactQuery";
@@ -179,6 +178,7 @@ import {
   ClaudeAI,
   CursorIcon,
   Gemini,
+  GitHubIcon,
   Icon,
   OpenAI,
   OpenCodeIcon,
@@ -216,6 +216,7 @@ import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import {
   getAppModelOptions,
+  getCustomModelsForProvider as getAppSettingsCustomModelsForProvider,
   resolveAppModelSelection,
   resolveAppServiceTier,
   shouldShowFastTierIcon,
@@ -899,7 +900,10 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
       ),
     [serverConfigQuery.data?.providers],
   );
-  const customModelsForSelectedProvider = getCustomModelsForProvider(settings, selectedProvider);
+  const customModelsForSelectedProvider = getAppSettingsCustomModelsForProvider(
+    settings,
+    selectedProvider,
+  );
   const builtInModelsForSelectedProvider = modelOptionsByProvider[selectedProvider];
   const selectedModel = useMemo(() => {
     const draftModel = composerDraft.model;
@@ -1293,15 +1297,6 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
   );
   const effectivePathQuery = pathTriggerQuery.length > 0 ? debouncedPathQuery : "";
   const branchesQuery = useQuery(gitBranchesQueryOptions(gitCwd));
-  const codexBinaryPathOverride = settings.codexBinaryPath.trim();
-  const codexHomePathOverride = settings.codexHomePath.trim();
-  const codexRateLimitsQuery = useQuery(
-    serverCodexRateLimitsQueryOptions({
-      ...(codexBinaryPathOverride ? { binaryPath: codexBinaryPathOverride } : {}),
-      ...(codexHomePathOverride ? { homePath: codexHomePathOverride } : {}),
-      enabled: selectedProvider === "codex",
-    }),
-  );
   const workspaceEntriesQuery = useQuery(
     projectSearchEntriesQueryOptions({
       cwd: gitCwd,
@@ -3196,7 +3191,7 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
         activeThread.id,
         resolveAppModelSelection(
           provider,
-          getCustomModelsForProvider(settings, provider),
+          getAppSettingsCustomModelsForProvider(settings, provider),
           model,
           modelOptionsByProvider[provider],
         ),
@@ -3766,7 +3761,6 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
                     modelOptionsByProvider={modelOptionsByProvider}
                     opencodeModelCatalog={opencodeModelCatalog}
                     serviceTierSetting={selectedServiceTierSetting}
-                    codexRateLimits={codexRateLimitsQuery.data}
                     onProviderModelChange={onProviderModelSelect}
                   />
 
@@ -4668,7 +4662,8 @@ const MAX_VISIBLE_COMMAND_GROUP_ROWS = 3;
 
 type RenderableWorkArtifact =
   | { kind: "entry"; entry: WorkLogEntry }
-  | { kind: "command-group"; entries: WorkLogEntry[] };
+  | { kind: "command-group"; entries: WorkLogEntry[] }
+  | { kind: "path-tool-group"; entries: WorkLogEntry[] };
 
 function resolveWorkArtifactVariant(entry: WorkLogEntry): WorkArtifactVariant {
   const itemType = entry.toolCall?.itemType;
@@ -4707,22 +4702,65 @@ function formatWorkEntryMeta(entry: WorkLogEntry): string {
   return formatTimestamp(entry.createdAt);
 }
 
+function isCompactPathToolEntry(entry: WorkLogEntry | null | undefined): boolean {
+  return entry?.toolCall?.compact === "path" && typeof entry.toolCall.targetPath === "string";
+}
+
+function compactPathToolGroupKey(entry: WorkLogEntry | null | undefined): string | null {
+  const name = entry?.toolCall?.name.trim().toLowerCase();
+  return name && isCompactPathToolEntry(entry) ? name : null;
+}
+
+function compactPathToolDefinition(entry: WorkLogEntry | null | undefined): {
+  label: string;
+  Icon: LucideIcon;
+} {
+  const toolCallName = entry?.toolCall?.name;
+  const toolName = toolCallName?.trim().toLowerCase() ?? "";
+  if (toolName === "read" || toolName === "cat") {
+    return { label: "Read", Icon: FileIcon };
+  }
+  if (toolName === "glob" || toolName === "grep") {
+    return { label: toolName === "grep" ? "Grep" : "Glob", Icon: SearchIcon };
+  }
+  return { label: toolCallName ?? "Tool", Icon: WrenchIcon };
+}
+
+function artifactGroupKey(artifact: RenderableWorkArtifact): string {
+  if (artifact.kind === "entry") {
+    return `work-row:${artifact.entry.id}`;
+  }
+  return `${artifact.kind}:${artifact.entries.map((entry) => entry.id).join(":")}`;
+}
+
 function groupRenderableWorkArtifacts(entries: ReadonlyArray<WorkLogEntry>): RenderableWorkArtifact[] {
   const grouped: RenderableWorkArtifact[] = [];
 
   for (const entry of entries) {
     const variant = resolveWorkArtifactVariant(entry);
     const previous = grouped.at(-1);
-    if (
-      variant === "command" &&
-      previous?.kind === "command-group"
-    ) {
+    if (variant === "command" && previous?.kind === "command-group") {
       previous.entries.push(entry);
       continue;
     }
 
     if (variant === "command") {
       grouped.push({ kind: "command-group", entries: [entry] });
+      continue;
+    }
+
+    const pathToolGroupKey = compactPathToolGroupKey(entry);
+    if (
+      pathToolGroupKey &&
+      previous?.kind === "path-tool-group" &&
+      compactPathToolGroupKey(previous.entries[0] ?? null) === pathToolGroupKey
+    ) {
+      previous.entries.push(entry);
+      continue;
+    }
+
+    if (pathToolGroupKey) {
+      grouped.push({ kind: "path-tool-group", entries: [entry] });
       continue;
     }
 
@@ -4884,6 +4922,55 @@ const ArtifactCommandGroupCard = memo(function ArtifactCommandGroupCard(props: {
           {visibleEntries.map((entry) => (
             <div key={entry.id} className="flex items-center justify-between gap-3 px-4 py-3">
               <span className="min-w-0 flex-1 truncate">{entry.command ?? entry.label}</span>
+              <span className="shrink-0 text-[11px] text-muted-foreground">
+                {formatWorkEntryMeta(entry)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </ArtifactCardShell>
+    </div>
+  );
+});
+
+const ArtifactPathToolGroupCard = memo(function ArtifactPathToolGroupCard(props: {
+  entries: ReadonlyArray<WorkLogEntry>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const hasOverflow = props.entries.length > MAX_VISIBLE_COMMAND_GROUP_ROWS;
+  const visibleEntries =
+    hasOverflow && !expanded ? props.entries.slice(0, MAX_VISIBLE_COMMAND_GROUP_ROWS) : props.entries;
+  const { label, Icon } = compactPathToolDefinition(props.entries[0]);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <ArtifactSectionLabel
+        icon={Icon}
+        label={props.entries.length > 1 ? `${label} (${props.entries.length})` : label}
+      />
+      <ArtifactCardShell
+        className="bg-popover"
+        footer={
+          hasOverflow ? (
+            <button
+              type="button"
+              className="flex w-full items-center justify-center gap-1 border-t border-border-subtle bg-foreground/5 px-4 py-2 text-[11px] font-bold tracking-wider text-primary uppercase transition-colors hover:text-primary/80"
+              onClick={() => setExpanded((current) => !current)}
+            >
+              <span>
+                {expanded ? "Show Less" : `+${props.entries.length - MAX_VISIBLE_COMMAND_GROUP_ROWS} More`}
+              </span>
+              <ChevronDownIcon className={cn("size-3", expanded && "rotate-180")} />
+            </button>
+          ) : undefined
+        }
+      >
+        <div className="divide-y divide-foreground/5 font-mono text-[12px] text-foreground/80">
+          {visibleEntries.map((entry) => (
+            <div key={entry.id} className="flex items-center justify-between gap-3 px-4 py-3">
+              <span className="min-w-0 flex-1 truncate">
+                {entry.toolCall?.targetPath ?? entry.toolCall?.input ?? entry.label}
+              </span>
               <span className="shrink-0 text-[11px] text-muted-foreground">
                 {formatWorkEntryMeta(entry)}
               </span>
@@ -5436,16 +5523,15 @@ const MessagesTimeline = memo(function MessagesTimeline({
           return (
             <div className="px-1 py-0.5">
               <div className="flex flex-col gap-4">
-                {renderableArtifacts.map((artifact, index) =>
-                  artifact.kind === "command-group" ? (
-                    <ArtifactCommandGroupCard
-                      key={`work-command-group:${artifact.entries[0]?.id ?? index}`}
-                      entries={artifact.entries}
-                    />
-                  ) : (
-                    <WorkEntryArtifacts key={`work-row:${artifact.entry.id}`} entry={artifact.entry} />
-                  ),
-                )}
+                {renderableArtifacts.map((artifact) => {
+                  if (artifact.kind === "command-group") {
+                    return <ArtifactCommandGroupCard key={artifactGroupKey(artifact)} entries={artifact.entries} />;
+                  }
+                  if (artifact.kind === "path-tool-group") {
+                    return <ArtifactPathToolGroupCard key={artifactGroupKey(artifact)} entries={artifact.entries} />;
+                  }
+                  return <WorkEntryArtifacts key={artifactGroupKey(artifact)} entry={artifact.entry} />;
+                })}
               </div>
               {hasOverflow && (
                 <div className="mt-3 flex justify-center">
@@ -5667,36 +5753,36 @@ const MessagesTimeline = memo(function MessagesTimeline({
   );
 });
 
-function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): option is {
-  value: ProviderKind;
-  label: string;
-  available: true;
-} {
-  return option.available && option.value !== "claudeCode";
-}
-
-const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter(isAvailableProviderOption);
-const UNAVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter((option) => !option.available);
-const COMING_SOON_PROVIDER_OPTIONS = [{ id: "gemini", label: "Gemini", icon: Gemini }] as const;
+const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter((option) => option.available);
 
 function getCustomModelOptionsByProvider(
   settings: {
     customCodexModels: readonly string[];
     customOpencodeModels: readonly string[];
+    customCopilotModels: readonly string[];
+    customClaudeCodeModels: readonly string[];
+    customCursorModels: readonly string[];
+    customGeminiModels: readonly string[];
   },
   providerStatuses: ReadonlyArray<ServerProviderStatus>,
 ): Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>> {
-  const opencodeModels =
-    providerStatuses.find((status) => status.provider === "opencode")?.models ?? [];
-  return {
-    codex: getAppModelOptions("codex", settings.customCodexModels),
-    opencode: getAppModelOptions(
-      "opencode",
-      settings.customOpencodeModels,
-      undefined,
-      opencodeModels,
-    ),
-  };
+  return Object.fromEntries(
+    AVAILABLE_PROVIDER_OPTIONS.map((option) => {
+      const provider = option.value;
+      const providerModels =
+        providerStatuses.find((status) => status.provider === provider)?.models ??
+        getModelOptions(provider);
+      return [
+        provider,
+        getAppModelOptions(
+          provider,
+          getAppSettingsCustomModelsForProvider(settings, provider),
+          undefined,
+          providerModels,
+        ),
+      ];
+    }),
+  ) as unknown as Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>;
 }
 
 function findModelGroupBySlug(
@@ -5765,21 +5851,13 @@ function renderProviderModelMenuItems(props: {
   );
 }
 
-function getCustomModelsForProvider(
-  settings: {
-    customCodexModels: readonly string[];
-    customOpencodeModels: readonly string[];
-  },
-  provider: ProviderKind,
-) {
-  return provider === "opencode" ? settings.customOpencodeModels : settings.customCodexModels;
-}
-
 const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
   codex: OpenAI,
   opencode: OpenCodeIcon,
+  copilot: GitHubIcon,
   claudeCode: ClaudeAI,
   cursor: CursorIcon,
+  gemini: Gemini,
 };
 
 function resolveModelForProviderPicker(
@@ -5823,7 +5901,6 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   opencodeModelCatalog: ServerProviderModelCatalog | null;
   serviceTierSetting: AppServiceTier;
   disabled?: boolean;
-  codexRateLimits?: ServerCodexRateLimits | undefined;
   onProviderModelChange: (provider: ProviderKind, model: ModelSlug) => void;
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -5868,36 +5945,6 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         </span>
       </MenuTrigger>
       <MenuPopup align="start" className="!rounded before:!rounded-[calc(var(--radius)-1px)]">
-        {props.provider === "codex" && props.codexRateLimits ? (
-          <div className="px-2 py-2 border-b border-border/50">
-            <div className="flex items-center gap-3 text-xs">
-              <div className="flex-1">
-                <div className="font-medium text-foreground">
-                  {Math.round(props.codexRateLimits.primary?.remainingPercent ?? 0)}%
-                </div>
-                <div className="text-muted-foreground">5h</div>
-                {props.codexRateLimits.primary?.resetsAt ? (
-                  <div className="text-[10px] text-muted-foreground/70">
-                    {new Date(props.codexRateLimits.primary.resetsAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-                  </div>
-                ) : null}
-              </div>
-              {props.codexRateLimits.secondary ? (
-                <div className="flex-1">
-                  <div className="font-medium text-foreground">
-                    {Math.round(props.codexRateLimits.secondary.remainingPercent)}%
-                  </div>
-                  <div className="text-muted-foreground">Weekly</div>
-                  {props.codexRateLimits.secondary.resetsAt ? (
-                    <div className="text-[10px] text-muted-foreground/70">
-                      {new Date(props.codexRateLimits.secondary.resetsAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
         {AVAILABLE_PROVIDER_OPTIONS.map((option) => {
           const OptionIcon = PROVIDER_ICON_BY_PROVIDER[option.value];
           const isDisabledByProviderLock =
@@ -5999,38 +6046,6 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                 )}
               </MenuSubPopup>
             </MenuSub>
-          );
-        })}
-        {UNAVAILABLE_PROVIDER_OPTIONS.length > 0 && <MenuDivider />}
-        {UNAVAILABLE_PROVIDER_OPTIONS.map((option) => {
-          const OptionIcon = PROVIDER_ICON_BY_PROVIDER[option.value];
-          return (
-            <MenuItem key={option.value} disabled>
-              <OptionIcon
-                aria-hidden="true"
-                className={cn(
-                  "size-4 shrink-0 opacity-80",
-                  option.value === "claudeCode" ? "" : "text-muted-foreground/85",
-                )}
-              />
-              <span>{option.label}</span>
-              <span className="ms-auto text-[11px] text-muted-foreground/80 uppercase tracking-[0.08em]">
-                Coming soon
-              </span>
-            </MenuItem>
-          );
-        })}
-        {UNAVAILABLE_PROVIDER_OPTIONS.length === 0 && <MenuDivider />}
-        {COMING_SOON_PROVIDER_OPTIONS.map((option) => {
-          const OptionIcon = option.icon;
-          return (
-            <MenuItem key={option.id} disabled>
-              <OptionIcon aria-hidden="true" className="size-4 shrink-0 opacity-80" />
-              <span>{option.label}</span>
-              <span className="ms-auto text-[11px] text-muted-foreground/80 uppercase tracking-[0.08em]">
-                Coming soon
-              </span>
-            </MenuItem>
           );
         })}
       </MenuPopup>
