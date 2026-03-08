@@ -41,6 +41,8 @@ const initialState: AppState = {
   threadsHydrated: false,
 };
 const persistedExpandedProjectCwds = new Set<string>();
+let legacyKeysCleanedUp = false;
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
 
 // ── Persist helpers ──────────────────────────────────────────────────
 
@@ -73,12 +75,25 @@ function persistState(state: AppState): void {
           .map((project) => project.cwd),
       }),
     );
-    for (const legacyKey of LEGACY_PERSISTED_STATE_KEYS) {
-      window.localStorage.removeItem(legacyKey);
+    if (!legacyKeysCleanedUp) {
+      legacyKeysCleanedUp = true;
+      for (const legacyKey of LEGACY_PERSISTED_STATE_KEYS) {
+        window.localStorage.removeItem(legacyKey);
+      }
     }
   } catch {
     // Ignore quota/storage errors to avoid breaking chat UX.
   }
+}
+
+function debouncedPersistState(state: AppState): void {
+  if (persistTimer !== null) {
+    clearTimeout(persistTimer);
+  }
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    persistState(state);
+  }, 500);
 }
 
 // ── Pure helpers ──────────────────────────────────────────────────────
@@ -394,8 +409,17 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => setThreadBranch(state, threadId, branch, worktreePath)),
 }));
 
-// Persist on every state change
-useStore.subscribe((state) => persistState(state));
+useStore.subscribe((state) => debouncedPersistState(state));
+
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", () => {
+    if (persistTimer !== null) {
+      clearTimeout(persistTimer);
+      persistTimer = null;
+      persistState(useStore.getState());
+    }
+  });
+}
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {

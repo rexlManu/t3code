@@ -156,6 +156,7 @@ function EventRouter() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const pathnameRef = useRef(pathname);
+  const lastServerConfigSignatureRef = useRef<string | null>(null);
   const lastConfigIssuesSignatureRef = useRef<string | null>(null);
   const handledBootstrapThreadIdRef = useRef<string | null>(null);
 
@@ -205,15 +206,30 @@ function EventRouter() {
 
     void syncSnapshot().catch(() => undefined);
 
+    const DOMAIN_EVENT_BATCH_MS = 100;
+    let batchTimer: ReturnType<typeof setTimeout> | null = null;
+    let needsProviderInvalidation = false;
+
+    const flushBatch = () => {
+      batchTimer = null;
+      if (needsProviderInvalidation) {
+        needsProviderInvalidation = false;
+        void queryClient.invalidateQueries({ queryKey: providerQueryKeys.all });
+      }
+      void syncSnapshot();
+    };
+
     const unsubDomainEvent = api.orchestration.onDomainEvent((event) => {
       if (event.sequence <= latestSequence) {
         return;
       }
       latestSequence = event.sequence;
       if (event.type === "thread.turn-diff-completed" || event.type === "thread.reverted") {
-        void queryClient.invalidateQueries({ queryKey: providerQueryKeys.all });
+        needsProviderInvalidation = true;
       }
-      void syncSnapshot();
+      if (batchTimer === null) {
+        batchTimer = setTimeout(flushBatch, DOMAIN_EVENT_BATCH_MS);
+      }
     });
     const unsubTerminalEvent = api.terminal.onEvent((event) => {
       const hasRunningSubprocess = terminalRunningSubprocessFromEvent(event);
@@ -255,15 +271,25 @@ function EventRouter() {
       })().catch(() => undefined);
     });
     const unsubServerConfigUpdated = onServerConfigUpdated((payload) => {
+      const payloadSignature = JSON.stringify(payload);
+      if (lastServerConfigSignatureRef.current === payloadSignature) {
+        return;
+      }
+      lastServerConfigSignatureRef.current = payloadSignature;
+
+      void queryClient.invalidateQueries({ queryKey: serverQueryKeys.config() });
+
       const signature = JSON.stringify(payload.issues);
       if (lastConfigIssuesSignatureRef.current === signature) {
         return;
       }
+      const hasSeenIssueSignature = lastConfigIssuesSignatureRef.current !== null;
       lastConfigIssuesSignatureRef.current = signature;
-
-      void queryClient.invalidateQueries({ queryKey: serverQueryKeys.config() });
       const issue = payload.issues.find((entry) => entry.kind.startsWith("keybindings."));
       if (!issue) {
+        if (!hasSeenIssueSignature) {
+          return;
+        }
         toastManager.add({
           type: "success",
           title: "Keybindings updated",
@@ -298,6 +324,9 @@ function EventRouter() {
     });
     return () => {
       disposed = true;
+      if (batchTimer !== null) {
+        clearTimeout(batchTimer);
+      }
       unsubDomainEvent();
       unsubTerminalEvent();
       unsubWelcome();

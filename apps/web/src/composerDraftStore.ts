@@ -15,10 +15,69 @@ import {
   type ChatImageAttachment,
 } from "./types";
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
+import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "t3code:composer-drafts:v1";
 export type DraftThreadEnvMode = "local" | "worktree";
+
+const COMPOSER_PERSIST_DEBOUNCE_MS = 300;
+
+interface DebouncedStorage extends StateStorage {
+  flush: () => void;
+}
+
+export function createDebouncedStorage(baseStorage: StateStorage): DebouncedStorage {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let pendingName: string | null = null;
+  let pendingValue: string | null = null;
+
+  return {
+    getItem: (name) => baseStorage.getItem(name),
+    setItem: (name, value) => {
+      pendingName = name;
+      pendingValue = value;
+      if (timer !== null) {
+        clearTimeout(timer);
+      }
+      timer = setTimeout(() => {
+        timer = null;
+        pendingName = null;
+        pendingValue = null;
+        baseStorage.setItem(name, value);
+      }, COMPOSER_PERSIST_DEBOUNCE_MS);
+    },
+    removeItem: (name) => {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+        pendingName = null;
+        pendingValue = null;
+      }
+      baseStorage.removeItem(name);
+    },
+    flush: () => {
+      if (timer === null || pendingName === null || pendingValue === null) {
+        return;
+      }
+      clearTimeout(timer);
+      timer = null;
+      baseStorage.setItem(pendingName, pendingValue);
+      pendingName = null;
+      pendingValue = null;
+    },
+  };
+}
+
+const composerDebouncedStorage: DebouncedStorage =
+  typeof localStorage !== "undefined"
+    ? createDebouncedStorage(localStorage)
+    : { getItem: () => null, setItem: () => {}, removeItem: () => {}, flush: () => {} };
+
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", () => {
+    composerDebouncedStorage.flush();
+  });
+}
 
 export interface PersistedComposerImageAttachment {
   id: string;
@@ -439,6 +498,7 @@ function readPersistedAttachmentIdsFromStorage(threadId: ThreadId): string[] {
     return [];
   }
   try {
+    composerDebouncedStorage.flush();
     const raw = localStorage.getItem(COMPOSER_DRAFT_STORAGE_KEY);
     const persisted = parsePersistedDraftStateRaw(raw);
     return (persisted.draftsByThreadId[threadId]?.attachments ?? []).map(
@@ -1167,7 +1227,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
     {
       name: COMPOSER_DRAFT_STORAGE_KEY,
       version: 1,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => composerDebouncedStorage),
       partialize: (state) => {
         const persistedDraftsByThreadId: PersistedComposerDraftStoreState["draftsByThreadId"] = {};
         for (const [threadId, draft] of Object.entries(state.draftsByThreadId)) {

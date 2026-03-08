@@ -269,7 +269,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     ),
   );
 
-  const providerStatuses = yield* providerHealth.getStatuses;
+  const getProviderStatuses = () => Effect.runSync(providerHealth.getStatuses);
 
   const clients = yield* Ref.make(new Set<WebSocket>());
   const logger = createLogger("ws");
@@ -632,10 +632,28 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
       channel: WS_CHANNELS.serverConfigUpdated,
       data: {
         issues: event.issues,
-        providers: providerStatuses,
+        providers: getProviderStatuses(),
       },
     }),
   ).pipe(Effect.forkIn(subscriptionsScope));
+
+  providerHealth.onReady((statuses) => {
+    keybindingsManager.loadConfigState
+      .pipe(
+        Effect.flatMap((config) =>
+          broadcastPush({
+            type: "push",
+            channel: WS_CHANNELS.serverConfigUpdated,
+            data: {
+              issues: config.issues,
+              providers: statuses,
+            },
+          }),
+        ),
+        Effect.runPromise,
+      )
+      .catch(() => undefined);
+  });
 
   yield* Scope.provide(orchestrationReactor.start, subscriptionsScope);
 
@@ -884,7 +902,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           keybindingsConfigPath,
           keybindings: keybindingsConfig.keybindings,
           issues: keybindingsConfig.issues,
-          providers: providerStatuses,
+          providers: getProviderStatuses(),
           availableEditors,
         };
 

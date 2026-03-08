@@ -88,6 +88,7 @@ const defaultProviderStatuses: ReadonlyArray<ServerProviderStatus> = [
 
 const defaultProviderHealthService: ProviderHealthShape = {
   getStatuses: Effect.succeed(defaultProviderStatuses),
+  onReady: () => {},
 };
 
 class MockTerminalManager implements TerminalManagerShape {
@@ -920,6 +921,59 @@ describe("WebSocket Server", () => {
         (push.data as { issues: unknown[] }).issues.length === 0,
     );
     expect(successPush.data).toEqual({ issues: [], providers: defaultProviderStatuses });
+  });
+
+  it("pushes provider status updates when background health checks finish", async () => {
+    const pendingProviderStatuses: ReadonlyArray<ServerProviderStatus> = [
+      {
+        provider: "codex",
+        status: "warning",
+        available: false,
+        authStatus: "unknown",
+        checkedAt: "2026-01-01T00:00:00.000Z",
+        message: "Checking Codex CLI availability...",
+      },
+      {
+        provider: "opencode",
+        status: "warning",
+        available: false,
+        authStatus: "unknown",
+        checkedAt: "2026-01-01T00:00:00.000Z",
+        message: "Checking OpenCode availability...",
+      },
+    ];
+    const readyListeners: Array<(statuses: ReadonlyArray<ServerProviderStatus>) => void> = [];
+    let currentStatuses = pendingProviderStatuses;
+
+    server = await createTestServer({
+      cwd: "/my/workspace",
+      providerHealth: {
+        getStatuses: Effect.sync(() => currentStatuses),
+        onReady: (cb) => {
+          readyListeners.push(cb);
+        },
+      },
+    });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const ws = await connectWs(port);
+    connections.push(ws);
+    await waitForMessage(ws);
+
+    currentStatuses = defaultProviderStatuses;
+    for (const listener of readyListeners) {
+      listener(defaultProviderStatuses);
+    }
+
+    const push = await waitForPush(
+      ws,
+      WS_CHANNELS.serverConfigUpdated,
+      (event) =>
+        Array.isArray((event.data as { providers?: unknown[] }).providers) &&
+        (event.data as { providers: Array<{ status: string }> }).providers[0]?.status === "ready",
+    );
+    expect(push.data).toEqual({ issues: [], providers: defaultProviderStatuses });
   });
 
   it("routes shell.openInEditor through the injected open service", async () => {

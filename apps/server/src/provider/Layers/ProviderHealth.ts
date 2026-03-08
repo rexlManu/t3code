@@ -441,19 +441,14 @@ export const checkOpenCodeProviderStatus: Effect.Effect<
   } satisfies ServerProviderStatus;
 });
 
-// ── Layer ───────────────────────────────────────────────────────────
-
-export const ProviderHealthLive = Layer.effect(
-  ProviderHealth,
+const resolveOpenCodeProviderStatus = (directory: string) =>
   Effect.gen(function* () {
-    const serverConfig = yield* ServerConfig;
-    const codexStatus = yield* checkCodexProviderStatus;
     const opencodeBaseStatus = yield* checkOpenCodeProviderStatus;
     let opencodeStatus = opencodeBaseStatus;
 
     if (opencodeBaseStatus.available && opencodeBaseStatus.status !== 'error') {
       opencodeStatus = yield* discoverOpenCodeModels({
-        directory: serverConfig.cwd,
+        directory,
       }).pipe(
         Effect.map(({ modelCatalog, models }) => ({
           ...opencodeBaseStatus,
@@ -478,7 +473,7 @@ export const ProviderHealthLive = Layer.effect(
 
     if (!opencodeStatus.available || opencodeStatus.status === 'error') {
       const discovered = yield* discoverOpenCodeModels({
-        directory: serverConfig.cwd,
+        directory,
         serverUrl: DEFAULT_OPENCODE_SERVER_URL,
       }).pipe(Effect.result);
       if (Result.isSuccess(discovered)) {
@@ -499,8 +494,100 @@ export const ProviderHealthLive = Layer.effect(
       }
     }
 
+    return opencodeStatus;
+  });
+
+// ── Layer ───────────────────────────────────────────────────────────
+
+export const ProviderHealthLive = Layer.effect(
+  ProviderHealth,
+  Effect.gen(function* () {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const serverConfig = yield* ServerConfig;
+    let cachedStatuses: ReadonlyArray<ServerProviderStatus> = [
+      {
+        provider: CODEX_PROVIDER,
+        status: 'warning',
+        available: false,
+        authStatus: 'unknown',
+        checkedAt: new Date().toISOString(),
+        message: 'Checking Codex CLI availability...',
+      },
+      {
+        provider: OPENCODE_PROVIDER,
+        status: 'warning',
+        available: false,
+        authStatus: 'unknown',
+        checkedAt: new Date().toISOString(),
+        message: 'Checking OpenCode availability...',
+      },
+    ];
+
+    let readyListeners: Array<(statuses: ReadonlyArray<ServerProviderStatus>) => void> = [];
+    let resolved = false;
+
+    const notifyReady = (statuses: ReadonlyArray<ServerProviderStatus>) => {
+      resolved = true;
+      cachedStatuses = statuses;
+      for (const listener of readyListeners) {
+        try {
+          listener(statuses);
+        } catch {
+          // Ignore listener failures and keep notifying remaining listeners.
+        }
+      }
+      readyListeners = [];
+    };
+
+    Effect.all(
+      [
+        checkCodexProviderStatus.pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        ),
+        resolveOpenCodeProviderStatus(serverConfig.cwd).pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        ),
+      ],
+      { concurrency: 'unbounded' },
+    )
+      .pipe(Effect.runPromise)
+      .then(([codexStatus, opencodeStatus]) => {
+        notifyReady([codexStatus, opencodeStatus]);
+      })
+      .catch(() => {
+        notifyReady([
+          {
+            provider: CODEX_PROVIDER,
+            status: 'error',
+            available: false,
+            authStatus: 'unknown',
+            checkedAt: new Date().toISOString(),
+            message: 'Failed to check Codex CLI status.',
+          },
+          {
+            provider: OPENCODE_PROVIDER,
+            status: 'error',
+            available: false,
+            authStatus: 'unknown',
+            checkedAt: new Date().toISOString(),
+            message: 'Failed to check OpenCode status.',
+          },
+        ]);
+      });
+
     return {
-      getStatuses: Effect.succeed([codexStatus, opencodeStatus]),
+      getStatuses: Effect.sync(() => cachedStatuses),
+      onReady: (cb) => {
+        if (resolved) {
+          try {
+            cb(cachedStatuses);
+          } catch {
+            // Ignore listener failures.
+          }
+          return;
+        }
+        readyListeners.push(cb);
+      },
     } satisfies ProviderHealthShape;
   }),
 );
