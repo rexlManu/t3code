@@ -270,8 +270,8 @@ function WorkingIndicatorRow(props: { createdAt: string | null; nowIso: string }
 
   return (
     <div aria-live="polite" className="py-0.5 pl-1.5" role="status">
-      <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-border/70 bg-background/70 px-2.5 py-1 text-[11px] text-muted-foreground/70 backdrop-blur-xs">
-        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary/80">
+      <div className="inline-flex max-w-full items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-2.5 py-1 text-[11px] text-muted-foreground/70 backdrop-blur-xs">
+        <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary/80">
           <BotIcon className="size-3" />
         </span>
         <span aria-hidden="true" className="inline-flex items-center gap-[3px]">
@@ -4229,14 +4229,14 @@ const ChatHeader = memo(function ChatHeader({
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-sm">
           {activeProjectName ? (
             <>
-              <span className="shrink-0 truncate text-[14px] font-medium text-muted-foreground">
+              <span className="min-w-0 max-w-[32%] shrink truncate text-[14px] font-medium text-muted-foreground">
                 {activeProjectName}
               </span>
               <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground/70" />
             </>
           ) : null}
           <h2
-            className="min-w-0 shrink truncate text-[16px] font-medium text-foreground"
+            className="min-w-0 flex-1 truncate text-[16px] font-medium text-foreground"
             title={activeThreadTitle}
           >
             {activeThreadTitle}

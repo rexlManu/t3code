@@ -26,7 +26,7 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { Field, FieldLabel } from "~/components/ui/field";
-import { Group, GroupSeparator } from "~/components/ui/group";
+import { Group } from "~/components/ui/group";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { ScrollArea } from "~/components/ui/scroll-area";
@@ -634,7 +634,7 @@ export default function GitActionsControl({
               variant="toolbar-primary"
               size="toolbar"
               className={cn(
-                "gap-0 px-2.5 disabled:cursor-not-allowed disabled:opacity-100",
+                "gap-0 px-2 disabled:cursor-not-allowed disabled:opacity-100",
                 !iconOnly && "@2xl/chat-header:gap-2 @2xl/chat-header:px-3",
               )}
               disabled={isGitActionRunning || quickAction.disabled}
@@ -651,9 +651,6 @@ export default function GitActionsControl({
               </span>
             </Button>
           )}
-          <GroupSeparator
-            className={cn("hidden bg-primary-foreground/15", !iconOnly && "@2xl/chat-header:block")}
-          />
           <Menu
             onOpenChange={(open) => {
               if (open) void invalidateGitQueries(queryClient);
@@ -661,7 +658,12 @@ export default function GitActionsControl({
           >
             <MenuTrigger
               render={
-                <Button aria-label="Git action options" size="toolbar-icon" variant="toolbar-primary" />
+                <Button
+                  aria-label="Git action options"
+                  size="toolbar-icon"
+                  variant="toolbar-primary"
+                  className="relative before:absolute before:inset-y-2 before:left-0 before:w-px before:bg-primary-foreground/20 before:content-['']"
+                />
               }
               disabled={isGitActionRunning}
             >
