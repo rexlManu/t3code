@@ -1,7 +1,7 @@
 import type { ThreadId } from "@t3tools/contracts";
 import { useCallback } from "react";
 
-import { newCommandId } from "../lib/utils";
+import { cn, newCommandId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useStore } from "../store";
@@ -11,7 +11,6 @@ import {
   resolveEffectiveEnvMode,
 } from "./BranchToolbar.logic";
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
-import { Button } from "./ui/button";
 
 interface BranchToolbarProps {
   threadId: ThreadId;
@@ -101,22 +100,39 @@ export default function BranchToolbar({
   if (!activeThreadId || !activeProject) return null;
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-3 pt-1">
+    <div className="mx-auto flex w-full max-w-3xl items-center justify-between pb-3 pt-1">
       <div className="flex items-center gap-2">
         {envLocked || activeWorktreePath ? (
           <span className="border border-transparent px-[calc(--spacing(2)-1px)] text-sm font-medium text-muted-foreground/70 sm:text-xs">
             {activeWorktreePath ? "Worktree" : "Local"}
           </span>
         ) : (
-          <Button
-            type="button"
-            variant="ghost"
-            className="text-muted-foreground/70 hover:text-foreground/80"
-            size="xs"
-            onClick={() => onEnvModeChange(effectiveEnvMode === "local" ? "worktree" : "local")}
-          >
-            {effectiveEnvMode === "worktree" ? "New worktree" : "Local"}
-          </Button>
+          <div className="inline-flex items-center gap-1 rounded-xl border border-foreground/10 bg-background/60 p-1 shadow-[0_8px_24px_-20px_rgba(0,0,0,0.65)]">
+            <button
+              type="button"
+              className={cn(
+                "inline-flex h-9 items-center justify-center rounded px-4 text-sm font-semibold transition-colors",
+                effectiveEnvMode === "local"
+                  ? "bg-foreground/10 text-foreground"
+                  : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground/85",
+              )}
+              onClick={() => onEnvModeChange("local")}
+            >
+              Local
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "inline-flex h-9 items-center justify-center rounded px-4 text-sm font-semibold transition-colors",
+                effectiveEnvMode === "worktree"
+                  ? "bg-foreground/10 text-foreground"
+                  : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground/85",
+              )}
+              onClick={() => onEnvModeChange("worktree")}
+            >
+              New Worktree
+            </button>
+          </div>
         )}
       </div>
 

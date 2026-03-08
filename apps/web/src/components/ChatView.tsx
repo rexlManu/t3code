@@ -3559,7 +3559,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           data-chat-composer-form="true"
         >
           <div
-            className={`group rounded-[20px] border bg-card transition-colors duration-200 focus-within:border-ring/45 ${
+            className={`group rounded border bg-card transition-colors duration-200 focus-within:border-ring/45 ${
               isDragOverComposer ? "border-primary/70 bg-accent/30" : "border-border"
             }`}
             onDragEnter={onComposerDragEnter}
@@ -3568,14 +3568,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
             onDrop={onComposerDrop}
           >
             {activePendingApproval ? (
-              <div className="rounded-t-[19px] border-b border-border/65 bg-muted/20">
+              <div className="rounded-t border-b border-border/65 bg-muted/20">
                 <ComposerPendingApprovalPanel
                   approval={activePendingApproval}
                   pendingCount={pendingApprovals.length}
                 />
               </div>
             ) : pendingUserInputs.length > 0 ? (
-              <div className="rounded-t-[19px] border-b border-border/65 bg-muted/20">
+              <div className="rounded-t border-b border-border/65 bg-muted/20">
                 <ComposerPendingUserInputPanel
                   pendingUserInputs={pendingUserInputs}
                   respondingRequestIds={respondingUserInputRequestIds}
@@ -3585,7 +3585,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 />
               </div>
             ) : showPlanFollowUpPrompt && activeProposedPlan ? (
-              <div className="rounded-t-[19px] border-b border-border/65 bg-muted/20">
+              <div className="rounded-t border-b border-border/65 bg-muted/20">
                 <ComposerPlanFollowUpBanner
                   key={activeProposedPlan.id}
                   planTitle={proposedPlanTitle(activeProposedPlan.planMarkdown) ?? null}
@@ -3621,7 +3621,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     {composerImages.map((image) => (
                       <div
                         key={image.id}
-                        className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/80 bg-background"
+                        className="relative h-16 w-16 overflow-hidden rounded border border-border/80 bg-background"
                       >
                         {image.previewUrl ? (
                           <button
@@ -3754,7 +3754,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                   {/* Interaction mode toggle */}
                   <Button
                     variant="ghost"
-                    className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
+                    className="shrink-0 rounded whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
                     size="sm"
                     type="button"
                     onClick={toggleInteractionMode}
@@ -3776,7 +3776,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                   {/* Runtime mode toggle */}
                   <Button
                     variant="ghost"
-                    className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
+                    className="shrink-0 rounded whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
                     size="sm"
                     type="button"
                     onClick={() =>
@@ -3808,7 +3808,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="rounded-full"
+                          className="rounded"
                           onClick={onPreviousActivePendingUserInputQuestion}
                           disabled={activePendingIsResponding}
                         >
@@ -3818,7 +3818,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                       <Button
                         type="submit"
                         size="sm"
-                        className="rounded-full px-4"
+                        className="rounded px-4"
                         disabled={
                           activePendingIsResponding ||
                           (activePendingProgress.isLastQuestion
@@ -3836,7 +3836,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                   ) : phase === "running" ? (
                     <button
                       type="button"
-                      className="flex size-8 items-center justify-center rounded-full bg-rose-500/90 text-white transition-all duration-150 hover:bg-rose-500 hover:scale-105 sm:h-8 sm:w-8"
+                      className="flex size-8 items-center justify-center rounded bg-rose-500/90 text-white transition-all duration-150 hover:bg-rose-500 hover:scale-105 sm:h-8 sm:w-8"
                       onClick={() => void onInterrupt()}
                       aria-label="Stop generation"
                     >
@@ -3856,7 +3856,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                         <Button
                           type="submit"
                           size="sm"
-                          className="h-9 rounded-full px-4 sm:h-8"
+                          className="h-9 rounded px-4 sm:h-8"
                           disabled={isSendBusy || isConnecting}
                         >
                           {isConnecting || isSendBusy ? "Sending..." : "Refine"}
@@ -3866,7 +3866,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                           <Button
                             type="submit"
                             size="sm"
-                            className="h-9 rounded-l-full rounded-r-none px-4 sm:h-8"
+                            className="h-9 rounded px-4 sm:h-8"
                             disabled={isSendBusy || isConnecting}
                           >
                             {isConnecting || isSendBusy ? "Sending..." : "Implement"}
@@ -3877,7 +3877,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                                 <Button
                                   size="sm"
                                   variant="default"
-                                  className="h-9 rounded-l-none rounded-r-full border-l-white/12 px-2 sm:h-8"
+                                  className="h-9 rounded px-2 sm:h-8"
                                   aria-label="Implementation actions"
                                   disabled={isSendBusy || isConnecting}
                                 />
@@ -3899,7 +3899,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     ) : (
                       <button
                         type="submit"
-                        className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/90 text-primary-foreground transition-all duration-150 hover:bg-primary hover:scale-105 disabled:opacity-30 disabled:hover:scale-100 sm:h-8 sm:w-8"
+                        className="flex h-9 w-9 items-center justify-center rounded bg-primary/90 text-primary-foreground transition-all duration-150 hover:bg-primary hover:scale-105 disabled:opacity-30 disabled:hover:scale-100 sm:h-8 sm:w-8"
                         disabled={
                           isSendBusy ||
                           isConnecting ||
@@ -4311,6 +4311,7 @@ const ComposerPendingApprovalActions = memo(function ComposerPendingApprovalActi
       <Button
         size="sm"
         variant="ghost"
+        className="rounded"
         disabled={isResponding}
         onClick={() => void onRespondToApproval(requestId, "cancel")}
       >
@@ -4319,6 +4320,7 @@ const ComposerPendingApprovalActions = memo(function ComposerPendingApprovalActi
       <Button
         size="sm"
         variant="destructive-outline"
+        className="rounded"
         disabled={isResponding}
         onClick={() => void onRespondToApproval(requestId, "decline")}
       >
@@ -4327,6 +4329,7 @@ const ComposerPendingApprovalActions = memo(function ComposerPendingApprovalActi
       <Button
         size="sm"
         variant="outline"
+        className="rounded"
         disabled={isResponding}
         onClick={() => void onRespondToApproval(requestId, "acceptForSession")}
       >
@@ -4335,6 +4338,7 @@ const ComposerPendingApprovalActions = memo(function ComposerPendingApprovalActi
       <Button
         size="sm"
         variant="default"
+        className="rounded"
         disabled={isResponding}
         onClick={() => void onRespondToApproval(requestId, "accept")}
       >
@@ -5678,7 +5682,7 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
           <Button
             size="sm"
             variant="ghost"
-            className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
+            className="shrink-0 rounded whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
             disabled={props.disabled}
           />
         }
@@ -5900,7 +5904,7 @@ const ModelTraitsPicker = memo(function ModelTraitsPicker(props: {
           <Button
             size="sm"
             variant="ghost"
-            className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
+            className="shrink-0 rounded whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
           />
         }
       >

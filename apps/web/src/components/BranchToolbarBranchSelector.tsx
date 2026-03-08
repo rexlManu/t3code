@@ -1,7 +1,7 @@
 import type { GitBranch } from "@t3tools/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronDownIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, GitBranchIcon, SearchIcon } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -258,7 +258,7 @@ export function BranchToolbarBranchSelector({
   const branchListScrollElementRef = useRef<HTMLDivElement | null>(null);
   const branchListVirtualizer = useVirtualizer({
     count: filteredBranchPickerItems.length,
-    estimateSize: () => 28,
+    estimateSize: () => 44,
     getScrollElement: () => branchListScrollElementRef.current,
     overscan: 12,
     enabled: isBranchMenuOpen,
@@ -307,30 +307,48 @@ export function BranchToolbarBranchSelector({
       value={resolvedActiveBranch}
     >
       <ComboboxTrigger
-        render={<Button variant="ghost" size="xs" />}
-        className="text-muted-foreground/70 hover:text-foreground/80"
+        render={
+          <Button
+            variant="toolbar"
+            size="toolbar"
+            className="min-w-[10.5rem] justify-between px-3 text-xs font-medium"
+          />
+        }
         disabled={branchesQuery.isLoading || isBranchActionPending}
       >
-        <span className="max-w-[240px] truncate">{triggerLabel}</span>
-        <ChevronDownIcon />
+        <span className="flex min-w-0 items-center gap-2">
+          <GitBranchIcon className="size-4 shrink-0 text-muted-foreground" />
+          <span className="max-w-[240px] truncate">{triggerLabel}</span>
+        </span>
+        <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform data-[popup-open]:rotate-180 data-[popup-open]:text-foreground/80" />
       </ComboboxTrigger>
-      <ComboboxPopup align="end" side="top" className="w-64">
-        <div className="border-b p-1">
+      <ComboboxPopup
+        align="end"
+        side="top"
+        className="w-[26rem] overflow-hidden rounded border-foreground/10 bg-background/98 p-0 shadow-[0_24px_80px_-28px_rgba(0,0,0,0.75)] before:hidden"
+      >
+        <div className="border-b border-foreground/10 p-2">
           <ComboboxInput
-            className="[&_input]:font-sans rounded-md"
-            inputClassName="ring-0"
+            className="[&_input]:font-sans rounded"
+            inputClassName="rounded border-foreground/10 bg-foreground/4 text-sm shadow-none before:hidden hover:bg-foreground/6 focus-visible:bg-foreground/6 [&_input]:text-xs [&_input::placeholder]:text-muted-foreground/60"
             placeholder="Search branches..."
             showTrigger={false}
+            startAddon={<SearchIcon className="size-4 text-muted-foreground/70" />}
             size="sm"
             value={branchQuery}
             onChange={(event) => setBranchQuery(event.target.value)}
           />
         </div>
-        <ComboboxEmpty>No branches found.</ComboboxEmpty>
+        <div className="px-4 pb-0 pt-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/75">
+          {normalizedBranchQuery.length > 0 ? "Matching branches" : "Recent branches"}
+        </div>
+        <ComboboxEmpty className="px-4 pt-1 text-left text-sm text-muted-foreground/75">
+          No branches found.
+        </ComboboxEmpty>
 
-        <ComboboxList ref={setBranchListRef} className="max-h-56">
+        <ComboboxList ref={setBranchListRef} className="max-h-72 px-2 pb-2 pt-0">
           <div
-            className="relative"
+            className="relative -mt-0.5"
             style={{
               height: `${branchListVirtualizer.getTotalSize()}px`,
             }}
@@ -342,19 +360,23 @@ export function BranchToolbarBranchSelector({
                 return (
                   <ComboboxItem
                     hideIndicator
-                    key={itemValue}
-                    index={virtualRow.index}
-                    value={itemValue}
-                    style={{
-                      position: "absolute",
-                      top: 0,
+                  key={itemValue}
+                  index={virtualRow.index}
+                  value={itemValue}
+                  className="min-h-11 rounded px-3 py-2.5 text-sm font-medium text-foreground/85 data-highlighted:bg-foreground/5 data-highlighted:text-foreground"
+                  style={{
+                    position: "absolute",
+                    top: 0,
                       left: 0,
                       width: "100%",
                       transform: `translateY(${virtualRow.start}px)`,
                     }}
                     onClick={() => createBranch(trimmedBranchQuery)}
                   >
-                    <span className="truncate">Create new branch "{trimmedBranchQuery}"</span>
+                    <div className="flex w-full items-center gap-3">
+                      <GitBranchIcon className="size-4 shrink-0 text-primary" />
+                      <span className="truncate">Create new branch "{trimmedBranchQuery}"</span>
+                    </div>
                   </ComboboxItem>
                 );
               }
@@ -373,14 +395,16 @@ export function BranchToolbarBranchSelector({
                     : branch.isDefault
                       ? "default"
                       : null;
+              const isSelected = itemValue === resolvedActiveBranch;
               return (
                 <ComboboxItem
                   hideIndicator
                   key={itemValue}
                   index={virtualRow.index}
                   value={itemValue}
-                  className={
-                    itemValue === resolvedActiveBranch ? "bg-accent text-foreground" : undefined
+                  className={isSelected
+                    ? "min-h-11 rounded bg-primary/14 px-3 py-2.5 text-sm font-medium text-primary data-highlighted:bg-primary/14 data-highlighted:text-primary"
+                    : "min-h-11 rounded px-3 py-2.5 text-sm font-medium text-foreground/72 data-highlighted:bg-foreground/5 data-highlighted:text-foreground"
                   }
                   style={{
                     position: "absolute",
@@ -391,11 +415,19 @@ export function BranchToolbarBranchSelector({
                   }}
                   onClick={() => selectBranch(branch)}
                 >
-                  <div className="flex w-full items-center justify-between gap-2">
-                    <span className="truncate">{itemValue}</span>
-                    {badge && (
-                      <span className="shrink-0 text-[10px] text-muted-foreground/45">{badge}</span>
-                    )}
+                  <div className="flex w-full items-center gap-3">
+                    <GitBranchIcon
+                      className={
+                        isSelected ? "size-4 shrink-0 text-primary" : "size-4 shrink-0 text-muted-foreground/55"
+                      }
+                    />
+                    <span className="min-w-0 flex-1 truncate">{itemValue}</span>
+                    {isSelected ? <CheckIcon className="size-4 shrink-0 text-primary" /> : null}
+                    {!isSelected && badge ? (
+                      <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground/38">
+                        {badge}
+                      </span>
+                    ) : null}
                   </div>
                 </ComboboxItem>
               );
