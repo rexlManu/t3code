@@ -107,7 +107,7 @@ export default function BranchToolbar({
             {activeWorktreePath ? "Worktree" : "Local"}
           </span>
         ) : (
-          <div className="inline-flex items-center gap-1 rounded-xl border border-foreground/10 bg-background/60 p-1 shadow-[0_8px_24px_-20px_rgba(0,0,0,0.65)]">
+          <div className="inline-flex items-center gap-1 rounded border border-foreground/10 bg-background/60 p-1 shadow-[0_8px_24px_-20px_rgba(0,0,0,0.65)]">
             <button
               type="button"
               className={cn(
