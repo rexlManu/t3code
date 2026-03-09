@@ -35,6 +35,7 @@ import {
   memo,
   type ReactNode,
   useCallback,
+  useDeferredValue,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -92,7 +93,13 @@ import {
   buildPendingUserInputAnswers,
   type PendingUserInputDraftAnswer,
 } from "../pendingUserInput";
-import { useStore } from "../store";
+import {
+  selectProjectById,
+  selectProjectIdForThread,
+  selectThreadExists,
+  selectThreadById,
+  useStore,
+} from "../store";
 import {
   buildPlanImplementationThreadTitle,
   buildPlanImplementationPrompt,
@@ -217,6 +224,7 @@ import {
 import { Toggle } from "./ui/toggle";
 import { SidebarTrigger } from "./ui/sidebar";
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
+import { copyTextToClipboard } from "~/lib/clipboard";
 import { readNativeApi } from "~/nativeApi";
 import {
   getAppModelOptions,
@@ -275,10 +283,7 @@ function WorkingIndicatorRow(props: { createdAt: string | null; nowIso: string }
 
   return (
     <div aria-live="polite" className="py-0.5 pl-1.5" role="status">
-      <div className="inline-flex max-w-full items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-2.5 py-1 text-[11px] text-muted-foreground/70 backdrop-blur-xs">
-        <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary/80">
-          <BotIcon className="size-3" />
-        </span>
+      <div className="inline-flex max-w-full items-center gap-2 text-[11px] text-muted-foreground/70">
         <span aria-hidden="true" className="inline-flex items-center gap-[3px]">
           <span className="h-1 w-1 rounded-full bg-current/50 animate-pulse" />
           <span className="h-1 w-1 rounded-full bg-current/50 animate-pulse [animation-delay:200ms]" />
@@ -770,8 +775,8 @@ interface ChatViewProps {
 }
 
 export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps) {
-  const threads = useStore((store) => store.threads);
-  const projects = useStore((store) => store.projects);
+  const serverThread = useStore((state) => selectThreadById(state, threadId));
+  const serverProjectId = useStore((state) => selectProjectIdForThread(state, threadId));
   const markThreadVisited = useStore((store) => store.markThreadVisited);
   const syncServerReadModel = useStore((store) => store.syncServerReadModel);
   const setStoreThreadError = useStore((store) => store.setError);
@@ -813,6 +818,7 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
   const draftThread = useComposerDraftStore(
     (store) => store.draftThreadsByThreadId[threadId] ?? null,
   );
+  const fallbackDraftProject = useStore((state) => selectProjectById(state, draftThread?.projectId ?? null));
   const promptRef = useRef(prompt);
   const [isDragOverComposer, setIsDragOverComposer] = useState(false);
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
@@ -915,8 +921,6 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
     [removeComposerDraftImage, threadId],
   );
 
-  const serverThread = threads.find((t) => t.id === threadId);
-  const fallbackDraftProject = projects.find((project) => project.id === draftThread?.projectId);
   const localDraftError = serverThread ? null : (localDraftErrorsByThreadId[threadId] ?? null);
   const localDraftThread = useMemo(
     () =>
@@ -931,6 +935,8 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
     [draftThread, fallbackDraftProject?.model, localDraftError, threadId],
   );
   const activeThread = serverThread ?? localDraftThread;
+  const activeProjectId = serverProjectId ?? activeThread?.projectId ?? null;
+  const activeProject = useStore((state) => selectProjectById(state, activeProjectId));
   const runtimeMode =
     composerDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const interactionMode =
@@ -945,7 +951,6 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
   const activeThreadId = activeThread?.id ?? null;
   const activeLatestTurn = activeThread?.latestTurn ?? null;
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
-  const activeProject = projects.find((p) => p.id === activeThread?.projectId);
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
 
   useEffect(() => {
@@ -1081,27 +1086,39 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
     activeThread?.session ?? null,
     sendStartedAt,
   );
-  const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
+  const deferredTimelineThread = useDeferredValue(activeThread);
+  const deferredTimelineProject = useDeferredValue(activeProject);
+  const timelineThread =
+    deferredTimelineThread?.id === activeThread?.id ? deferredTimelineThread : activeThread;
+  const timelineProject =
+    deferredTimelineProject?.id === activeProject?.id ? deferredTimelineProject : activeProject;
+  const deferredLatestTurn = timelineThread?.latestTurn ?? null;
+  const deferredThreadActivities = timelineThread?.activities ?? EMPTY_ACTIVITIES;
+  const liveThreadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = useMemo(
     () =>
       deriveWorkLogEntries(
-        threadActivities,
-        activeLatestTurn?.turnId ?? undefined,
-        activeThread?.session?.provider ?? null,
+        deferredThreadActivities,
+        deferredLatestTurn?.turnId ?? undefined,
+        timelineThread?.session?.provider ?? null,
       ),
-    [activeLatestTurn?.turnId, activeThread?.session?.provider, threadActivities],
+    [
+      deferredLatestTurn?.turnId,
+      deferredThreadActivities,
+      timelineThread?.session?.provider,
+    ],
   );
   const latestTurnHasToolActivity = useMemo(
-    () => hasToolActivityForTurn(threadActivities, activeLatestTurn?.turnId),
-    [activeLatestTurn?.turnId, threadActivities],
+    () => hasToolActivityForTurn(deferredThreadActivities, deferredLatestTurn?.turnId),
+    [deferredLatestTurn?.turnId, deferredThreadActivities],
   );
   const pendingApprovals = useMemo(
-    () => derivePendingApprovals(threadActivities),
-    [threadActivities],
+    () => derivePendingApprovals(liveThreadActivities),
+    [liveThreadActivities],
   );
   const pendingUserInputs = useMemo(
-    () => derivePendingUserInputs(threadActivities),
-    [threadActivities],
+    () => derivePendingUserInputs(liveThreadActivities),
+    [liveThreadActivities],
   );
   const activePendingUserInput = pendingUserInputs[0] ?? null;
   const activePendingDraftAnswers = useMemo(
@@ -1126,13 +1143,13 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
       return null;
     }
     return findLatestProposedPlan(
-      activeThread?.proposedPlans ?? [],
-      activeLatestTurn?.turnId ?? null,
+      timelineThread?.proposedPlans ?? [],
+      deferredLatestTurn?.turnId ?? null,
     );
-  }, [activeLatestTurn?.turnId, activeThread?.proposedPlans, latestTurnSettled]);
+  }, [deferredLatestTurn?.turnId, latestTurnSettled, timelineThread?.proposedPlans]);
   const activePlan = useMemo(
-    () => deriveActivePlanState(threadActivities, activeLatestTurn?.turnId ?? undefined),
-    [activeLatestTurn?.turnId, threadActivities],
+    () => deriveActivePlanState(deferredThreadActivities, deferredLatestTurn?.turnId ?? undefined),
+    [deferredLatestTurn?.turnId, deferredThreadActivities],
   );
   const showPlanFollowUpPrompt =
     pendingUserInputs.length === 0 &&
@@ -1205,7 +1222,7 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
       delete attachmentPreviewHandoffTimeoutByMessageIdRef.current[messageId];
     }, ATTACHMENT_PREVIEW_HANDOFF_TTL_MS);
   }, []);
-  const serverMessages = activeThread?.messages;
+  const serverMessages = timelineThread?.messages;
   const timelineMessages = useMemo(() => {
     const messages = serverMessages ?? [];
     const serverMessagesWithPreviewHandoff =
@@ -1260,11 +1277,12 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
     return [...serverMessagesWithPreviewHandoff, ...pendingMessages];
   }, [serverMessages, attachmentPreviewHandoffByMessageId, optimisticUserMessages]);
   const timelineEntries = useMemo(
-    () => deriveTimelineEntries(timelineMessages, activeThread?.proposedPlans ?? [], workLogEntries),
-    [activeThread?.proposedPlans, timelineMessages, workLogEntries],
+    () =>
+      deriveTimelineEntries(timelineMessages, timelineThread?.proposedPlans ?? [], workLogEntries),
+    [timelineMessages, timelineThread?.proposedPlans, workLogEntries],
   );
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
-    useTurnDiffSummaries(activeThread);
+    useTurnDiffSummaries(timelineThread);
   const turnDiffSummaryByAssistantMessageId = useMemo(() => {
     const byMessageId = new Map<MessageId, TurnDiffSummary>();
     for (const summary of turnDiffSummaries) {
@@ -1476,6 +1494,10 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
     () => shortcutLabelForCommand(keybindings, "terminal.split"),
     [keybindings],
   );
+  const terminalToggleShortcutLabel = useMemo(
+    () => shortcutLabelForCommand(keybindings, "terminal.toggle"),
+    [keybindings],
+  );
   const newTerminalShortcutLabel = useMemo(
     () => shortcutLabelForCommand(keybindings, "terminal.new"),
     [keybindings],
@@ -1484,6 +1506,10 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
     () => shortcutLabelForCommand(keybindings, "terminal.close"),
     [keybindings],
   );
+  const terminalToggleActionLabel = useMemo(() => {
+    const action = terminalState.terminalOpen ? "Hide Terminal" : "Open Terminal";
+    return terminalToggleShortcutLabel ? `${action} (${terminalToggleShortcutLabel})` : action;
+  }, [terminalState.terminalOpen, terminalToggleShortcutLabel]);
   const diffPanelShortcutLabel = useMemo(
     () => shortcutLabelForCommand(keybindings, "diff.toggle"),
     [keybindings],
@@ -1509,7 +1535,7 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
   const setThreadError = useCallback(
     (targetThreadId: ThreadId | null, error: string | null) => {
       if (!targetThreadId) return;
-      if (threads.some((thread) => thread.id === targetThreadId)) {
+      if (selectThreadExists(useStore.getState(), targetThreadId)) {
         setStoreThreadError(targetThreadId, error);
         return;
       }
@@ -1523,7 +1549,7 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
         };
       });
     },
-    [setStoreThreadError, threads],
+    [setStoreThreadError],
   );
 
   const focusComposer = useCallback(() => {
@@ -3561,7 +3587,7 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
             isRevertingCheckpoint={isRevertingCheckpoint}
             onImageExpand={onExpandTimelineImage}
             markdownCwd={gitCwd ?? undefined}
-            workspaceRoot={activeProject?.cwd ?? undefined}
+            workspaceRoot={timelineProject?.cwd ?? undefined}
           />
         </div>
       </div>
@@ -3803,6 +3829,30 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
                     <span className="sr-only sm:not-sr-only">
                       {runtimeMode === "full-access" ? "Full access" : "Supervised"}
                     </span>
+                  </Button>
+
+                  {/* Divider */}
+                  <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
+
+                  {/* Terminal toggle */}
+                  <Button
+                    variant={terminalState.terminalOpen ? "outline" : "ghost"}
+                    className={cn(
+                      "shrink-0 rounded whitespace-nowrap px-2 sm:px-3",
+                      terminalState.terminalOpen
+                        ? "border-border/70 text-foreground"
+                        : "text-muted-foreground/70 hover:text-foreground/80",
+                    )}
+                    size="sm"
+                    type="button"
+                    onClick={toggleTerminalVisibility}
+                    title={activeProject ? terminalToggleActionLabel : "Terminal unavailable"}
+                    aria-label={activeProject ? terminalToggleActionLabel : "Terminal unavailable"}
+                    aria-pressed={terminalState.terminalOpen}
+                    disabled={!activeProject}
+                  >
+                    <TerminalIcon />
+                    <span className="sr-only sm:not-sr-only">Terminal</span>
                   </Button>
                 </div>
 
@@ -4529,9 +4579,12 @@ const MessageCopyButton = memo(function MessageCopyButton({ text }: { text: stri
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(() => {
-    void navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    void copyTextToClipboard(text)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => undefined);
   }, [text]);
 
   return (

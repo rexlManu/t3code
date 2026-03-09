@@ -17,7 +17,7 @@ import {
   reorderSplitPane,
   stripSplitSearchParams,
 } from "../splitViewRouteSearch";
-import { useStore } from "../store";
+import { selectThreadExists, selectThreadIds, useStore } from "../store";
 import { Sheet, SheetPopup } from "../components/ui/sheet";
 import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
 
@@ -145,17 +145,14 @@ const DiffPanelInlineSidebar = (props: {
 
 function ChatThreadRouteView() {
   const threadsHydrated = useStore((store) => store.threadsHydrated);
-  const threads = useStore((store) => store.threads);
+  const threadIds = useStore((state) => selectThreadIds(state));
   const navigate = useNavigate();
   const threadId = Route.useParams({
     select: (params) => ThreadId.makeUnsafe(params.threadId),
   });
   const search = Route.useSearch();
   const draftThreadsByThreadId = useComposerDraftStore((store) => store.draftThreadsByThreadId);
-  const threadExists = useMemo(
-    () => threads.some((thread) => thread.id === threadId),
-    [threadId, threads],
-  );
+  const threadExists = useStore((state) => selectThreadExists(state, threadId));
   const draftThreadExists = useMemo(
     () => Object.hasOwn(draftThreadsByThreadId, threadId),
     [draftThreadsByThreadId, threadId],
@@ -166,8 +163,8 @@ function ChatThreadRouteView() {
   const isTripleCapacity = useMediaQuery(PANE_CAPACITY_BREAKPOINTS.triple);
   const maxPanes = isTripleCapacity ? 3 : isDoubleCapacity ? 2 : 1;
   const validIds = useMemo(
-    () => new Set([...threads.map((thread) => thread.id), ...Object.keys(draftThreadsByThreadId)]),
-    [draftThreadsByThreadId, threads],
+    () => new Set([...threadIds, ...Object.keys(draftThreadsByThreadId)]),
+    [draftThreadsByThreadId, threadIds],
   );
   const rawPaneIds = buildPaneIds(threadId, search.split, MAX_SPLIT_PANES);
   const paneIds = rawPaneIds.filter((id, index) => index === 0 || validIds.has(id)).slice(0, maxPanes);

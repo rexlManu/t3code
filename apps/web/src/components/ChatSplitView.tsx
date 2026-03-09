@@ -3,7 +3,7 @@ import { ArrowLeftIcon, XIcon } from "lucide-react";
 import { useState, type DragEvent } from "react";
 
 import { useComposerDraftStore } from "../composerDraftStore";
-import { useStore } from "../store";
+import { selectThreadTitle, useStore } from "../store";
 import ChatView from "./ChatView";
 
 function handlePaneDragOver(event: DragEvent<HTMLDivElement>) {
@@ -21,9 +21,7 @@ interface PaneHeaderProps {
 }
 
 function useThreadDisplayTitle(threadId: ThreadId): string {
-  const threadTitle = useStore((store) =>
-    store.threads.find((thread) => thread.id === threadId)?.title,
-  );
+  const threadTitle = useStore((state) => selectThreadTitle(state, threadId));
   const isDraft = useComposerDraftStore((store) =>
     Object.hasOwn(store.draftThreadsByThreadId, threadId),
   );

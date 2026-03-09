@@ -45,20 +45,17 @@ export async function openExternalUrl(
     readonly platform?: NodeJS.Platform;
     readonly env?: NodeJS.ProcessEnv;
     readonly shellOpenExternal?: typeof shell.openExternal;
+    readonly linuxOpenExternal?: typeof spawnLinuxExternalOpener;
   } = {},
 ): Promise<boolean> {
   const platform = options.platform ?? process.platform;
-  if (platform === "linux") {
-    const opened = await spawnLinuxExternalOpener(target, options.env);
-    if (opened) {
-      return true;
-    }
-  }
-
   try {
     await (options.shellOpenExternal ?? shell.openExternal)(target);
     return true;
   } catch {
+    if (platform === "linux") {
+      return (options.linuxOpenExternal ?? spawnLinuxExternalOpener)(target, options.env);
+    }
     return false;
   }
 }

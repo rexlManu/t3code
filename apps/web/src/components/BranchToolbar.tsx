@@ -4,7 +4,7 @@ import { useCallback } from "react";
 import { cn, newCommandId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { useComposerDraftStore } from "../composerDraftStore";
-import { useStore } from "../store";
+import { selectProjectById, selectProjectIdForThread, selectThreadById, useStore } from "../store";
 import {
   EnvMode,
   resolveDraftEnvModeAfterBranchChange,
@@ -25,15 +25,13 @@ export default function BranchToolbar({
   envLocked,
   onComposerFocusRequest,
 }: BranchToolbarProps) {
-  const threads = useStore((store) => store.threads);
-  const projects = useStore((store) => store.projects);
   const setThreadBranchAction = useStore((store) => store.setThreadBranch);
+  const serverThread = useStore((state) => selectThreadById(state, threadId));
+  const serverProjectId = useStore((state) => selectProjectIdForThread(state, threadId));
   const draftThread = useComposerDraftStore((store) => store.getDraftThread(threadId));
+  const activeProjectId = serverProjectId ?? draftThread?.projectId ?? null;
+  const activeProject = useStore((state) => selectProjectById(state, activeProjectId));
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
-
-  const serverThread = threads.find((thread) => thread.id === threadId);
-  const activeProjectId = serverThread?.projectId ?? draftThread?.projectId ?? null;
-  const activeProject = projects.find((project) => project.id === activeProjectId);
   const activeThreadId = serverThread?.id ?? (draftThread ? threadId : undefined);
   const activeThreadBranch = serverThread?.branch ?? draftThread?.branch ?? null;
   const activeWorktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
