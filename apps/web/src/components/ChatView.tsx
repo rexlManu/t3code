@@ -3284,7 +3284,6 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
       settings.enableAssistantStreaming,
     ],
   );
-
   const onSend = useCallback(
     async (e?: { preventDefault: () => void }) => {
       e?.preventDefault();
