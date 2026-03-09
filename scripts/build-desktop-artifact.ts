@@ -605,6 +605,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       ChildProcess.make({
         cwd: repoRoot,
         ...commandOutputOptions(options.verbose),
+        shell: process.platform === "win32",
       })`bun run build:desktop`,
     );
   }
@@ -667,6 +668,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     ChildProcess.make({
       cwd: stageAppDir,
       ...commandOutputOptions(options.verbose),
+      shell: process.platform === "win32",
     })`bun install --production`,
   );
 
@@ -705,6 +707,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       cwd: stageAppDir,
       env: buildEnv,
       ...commandOutputOptions(options.verbose),
+      shell: process.platform === "win32",
     })`bunx electron-builder ${platformConfig.cliFlag} --${options.arch} --publish never`,
   );
 

@@ -64,11 +64,11 @@ describe("createOrchestrationSyncScheduler", () => {
   it("keeps one trailing sync while a snapshot refresh is already in flight", async () => {
     vi.useFakeTimers();
 
-    let resolveSync: ((value: number) => void) | null = null;
+    const syncResolution: { current: ((value: number) => void) | null } = { current: null };
     const sync = vi.fn(
       () =>
         new Promise<number>((resolve) => {
-          resolveSync = resolve;
+          syncResolution.current = (value) => resolve(value);
         }),
     );
     const scheduler = createOrchestrationSyncScheduler({
@@ -89,7 +89,9 @@ describe("createOrchestrationSyncScheduler", () => {
     scheduler.handleDomainEvent({ sequence: 4, type: "thread.session-set" });
     expect(sync).toHaveBeenCalledTimes(1);
 
-    resolveSync?.(4);
+    if (syncResolution.current) {
+      syncResolution.current(4);
+    }
     await nextMicrotask();
     await vi.advanceTimersByTimeAsync(0);
 

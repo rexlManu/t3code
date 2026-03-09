@@ -32,8 +32,27 @@ export function shouldShowDesktopUpdateButton(state: DesktopUpdateState | null):
   return resolveDesktopUpdateButtonAction(state) !== "none";
 }
 
+export function shouldShowArm64IntelBuildWarning(state: DesktopUpdateState | null): boolean {
+  return state?.hostArch === "arm64" && state.appArch === "x64";
+}
+
 export function isDesktopUpdateButtonDisabled(state: DesktopUpdateState | null): boolean {
   return state?.status === "downloading";
+}
+
+export function getArm64IntelBuildWarningDescription(state: DesktopUpdateState): string {
+  if (!shouldShowArm64IntelBuildWarning(state)) {
+    return "This install is already using the correct architecture.";
+  }
+
+  const action = resolveDesktopUpdateButtonAction(state);
+  if (action === "download") {
+    return "This Apple Silicon Mac is still running the Intel build under Rosetta. Download the update to switch to the native arm64 build.";
+  }
+  if (action === "install") {
+    return "This Apple Silicon Mac is still running the Intel build under Rosetta. Restart to install the downloaded native arm64 build.";
+  }
+  return "This Apple Silicon Mac is still running the Intel build under Rosetta. The next app update should replace it with the native arm64 build.";
 }
 
 export function getDesktopUpdateButtonTooltip(state: DesktopUpdateState): string {

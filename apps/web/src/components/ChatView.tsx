@@ -139,7 +139,7 @@ import {
 } from "../keybindings";
 import ChatMarkdown from "./ChatMarkdown";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
-import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
+import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
 import {
   type LucideIcon,
   BotIcon,
@@ -1215,7 +1215,7 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
 });
 
 const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
-  items: ComposerCommandItem[];
+  items: readonly ComposerCommandItem[];
   resolvedTheme: "light" | "dark";
   isLoading: boolean;
   triggerKind: ComposerTriggerKind | null;
@@ -1399,7 +1399,7 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
   const composerSelectLockRef = useRef(false);
   const composerMenuOpenRef = useRef(false);
-  const composerMenuItemsRef = useRef<ComposerCommandItem[]>([]);
+  const composerMenuItemsRef = useRef<readonly ComposerCommandItem[]>([]);
   const activeComposerMenuItemRef = useRef<ComposerCommandItem | null>(null);
   const attachmentPreviewHandoffByMessageIdRef = useRef<Record<string, string[]>>({});
   const attachmentPreviewHandoffTimeoutByMessageIdRef = useRef<Record<string, number>>({});
@@ -1468,11 +1468,7 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
     composerDraft.interactionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
-  const diffSearch = useMemo(
-    () => parseDiffRouteSearch(rawSearch as Record<string, unknown>),
-    [rawSearch],
-  );
-  const diffOpen = diffSearch.diff === "1";
+  const diffOpen = rawSearch.diff === "1";
   const activeThreadId = activeThread?.id ?? null;
   const activeLatestTurn = activeThread?.latestTurn ?? null;
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
@@ -2361,6 +2357,37 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
     },
     [activeProject, persistProjectScripts],
   );
+  const deleteProjectScript = useCallback(
+    async (scriptId: string) => {
+      if (!activeProject) return;
+      const deletedScript = activeProject.scripts.find((script) => script.id === scriptId);
+      if (!deletedScript) {
+        throw new Error("Action not found.");
+      }
+
+      try {
+        await persistProjectScripts({
+          projectId: activeProject.id,
+          projectCwd: activeProject.cwd,
+          previousScripts: activeProject.scripts,
+          nextScripts: activeProject.scripts.filter((script) => script.id !== scriptId),
+          keybinding: null,
+          keybindingCommand: commandForProjectScript(scriptId),
+        });
+        toastManager.add({
+          type: "success",
+          title: `Deleted action "${deletedScript.name}"`,
+        });
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Could not delete action",
+          description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        });
+      }
+    },
+    [activeProject, persistProjectScripts],
+  );
 
   const handleRuntimeModeChange = useCallback(
     (mode: RuntimeMode) => {
@@ -3148,6 +3175,116 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
     [activeThread, isConnecting, isRevertingCheckpoint, isSendBusy, phase, setThreadError],
   );
 
+  const onSubmitPlanFollowUp = useCallback(
+    async ({
+      text,
+      interactionMode: nextInteractionMode,
+    }: {
+      text: string;
+      interactionMode: "default" | "plan";
+    }) => {
+      const api = readNativeApi();
+      if (
+        !api ||
+        !activeThread ||
+        !isServerThread ||
+        isSendBusy ||
+        isConnecting ||
+        sendInFlightRef.current
+      ) {
+        return;
+      }
+
+      const trimmed = text.trim();
+      if (!trimmed) {
+        return;
+      }
+
+      const threadIdForSend = activeThread.id;
+      const messageIdForSend = newMessageId();
+      const messageCreatedAt = new Date().toISOString();
+
+      sendInFlightRef.current = true;
+      beginSendPhase("sending-turn");
+      setThreadError(threadIdForSend, null);
+      setOptimisticUserMessages((existing) => [
+        ...existing,
+        {
+          id: messageIdForSend,
+          role: "user",
+          text: trimmed,
+          createdAt: messageCreatedAt,
+          streaming: false,
+        },
+      ]);
+      shouldAutoScrollRef.current = true;
+      forceStickToBottom();
+
+      try {
+        await persistThreadSettingsForNextTurn({
+          threadId: threadIdForSend,
+          createdAt: messageCreatedAt,
+          ...(selectedModel ? { model: selectedModel } : {}),
+          runtimeMode,
+          interactionMode: nextInteractionMode,
+        });
+
+        // Keep the mode toggle and plan-follow-up banner in sync immediately
+        // while the same-thread implementation turn is starting.
+        setComposerDraftInteractionMode(threadIdForSend, nextInteractionMode);
+
+        await api.orchestration.dispatchCommand({
+          type: "thread.turn.start",
+          commandId: newCommandId(),
+          threadId: threadIdForSend,
+          message: {
+            messageId: messageIdForSend,
+            role: "user",
+            text: trimmed,
+            attachments: [],
+          },
+          provider: selectedProvider,
+          model: selectedModel || undefined,
+          ...(selectedModelOptionsForDispatch
+            ? { modelOptions: selectedModelOptionsForDispatch }
+            : {}),
+          assistantDeliveryMode: settings.enableAssistantStreaming ? "streaming" : "buffered",
+          runtimeMode,
+          interactionMode: nextInteractionMode,
+          createdAt: messageCreatedAt,
+        });
+        sendInFlightRef.current = false;
+      } catch (err) {
+        setOptimisticUserMessages((existing) =>
+          existing.filter((message) => message.id !== messageIdForSend),
+        );
+        setThreadError(
+          threadIdForSend,
+          err instanceof Error ? err.message : "Failed to send plan follow-up.",
+        );
+        sendInFlightRef.current = false;
+        resetSendPhase();
+      }
+    },
+    [
+      activeThread,
+      beginSendPhase,
+      forceStickToBottom,
+      isConnecting,
+      isSendBusy,
+      isServerThread,
+      persistThreadSettingsForNextTurn,
+      resetSendPhase,
+      runtimeMode,
+      selectedModel,
+      selectedModelOptionsForDispatch,
+      selectedProvider,
+      setComposerDraftInteractionMode,
+      setThreadError,
+      settings.enableAssistantStreaming,
+    ],
+  );
+
   const onSend = useCallback(
     async (e?: { preventDefault: () => void }) => {
       e?.preventDefault();
@@ -3560,116 +3697,6 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
       }));
     },
     [onRespondToUserInput, pendingUserInputAnswersByRequestId, pendingUserInputs],
-  );
-
-  const onSubmitPlanFollowUp = useCallback(
-    async ({
-      text,
-      interactionMode: nextInteractionMode,
-    }: {
-      text: string;
-      interactionMode: "default" | "plan";
-    }) => {
-      const api = readNativeApi();
-      if (
-        !api ||
-        !activeThread ||
-        !isServerThread ||
-        isSendBusy ||
-        isConnecting ||
-        sendInFlightRef.current
-      ) {
-        return;
-      }
-
-      const trimmed = text.trim();
-      if (!trimmed) {
-        return;
-      }
-
-      const threadIdForSend = activeThread.id;
-      const messageIdForSend = newMessageId();
-      const messageCreatedAt = new Date().toISOString();
-
-      sendInFlightRef.current = true;
-      beginSendPhase("sending-turn");
-      setThreadError(threadIdForSend, null);
-      setOptimisticUserMessages((existing) => [
-        ...existing,
-        {
-          id: messageIdForSend,
-          role: "user",
-          text: trimmed,
-          createdAt: messageCreatedAt,
-          streaming: false,
-        },
-      ]);
-      shouldAutoScrollRef.current = true;
-      forceStickToBottom();
-
-      try {
-        await persistThreadSettingsForNextTurn({
-          threadId: threadIdForSend,
-          createdAt: messageCreatedAt,
-          ...(selectedModel ? { model: selectedModel } : {}),
-          runtimeMode,
-          interactionMode: nextInteractionMode,
-        });
-
-        // Keep the mode toggle and plan-follow-up banner in sync immediately
-        // while the same-thread implementation turn is starting.
-        setComposerDraftInteractionMode(threadIdForSend, nextInteractionMode);
-
-        await api.orchestration.dispatchCommand({
-          type: "thread.turn.start",
-          commandId: newCommandId(),
-          threadId: threadIdForSend,
-          message: {
-            messageId: messageIdForSend,
-            role: "user",
-            text: trimmed,
-            attachments: [],
-          },
-          provider: selectedProvider,
-          model: selectedModel || undefined,
-          ...(selectedModelOptionsForDispatch
-            ? { modelOptions: selectedModelOptionsForDispatch }
-            : {}),
-          assistantDeliveryMode: settings.enableAssistantStreaming ? "streaming" : "buffered",
-          runtimeMode,
-          interactionMode: nextInteractionMode,
-          createdAt: messageCreatedAt,
-        });
-        sendInFlightRef.current = false;
-      } catch (err) {
-        setOptimisticUserMessages((existing) =>
-          existing.filter((message) => message.id !== messageIdForSend),
-        );
-        setThreadError(
-          threadIdForSend,
-          err instanceof Error ? err.message : "Failed to send plan follow-up.",
-        );
-        sendInFlightRef.current = false;
-        resetSendPhase();
-      }
-    },
-    [
-      activeThread,
-      beginSendPhase,
-      forceStickToBottom,
-      isConnecting,
-      isSendBusy,
-      isServerThread,
-      persistThreadSettingsForNextTurn,
-      resetSendPhase,
-      runtimeMode,
-      selectedModel,
-      selectedModelOptionsForDispatch,
-      selectedProvider,
-      setComposerDraftInteractionMode,
-      setThreadError,
-      settings.enableAssistantStreaming,
-    ],
   );
 
   const onImplementPlanInNewThread = useCallback(async () => {
@@ -4109,13 +4136,17 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
           }}
           onAddProjectScript={saveProjectScript}
           onUpdateProjectScript={updateProjectScript}
+          onDeleteProjectScript={deleteProjectScript}
           onToggleDiff={onToggleDiff}
         />
       </header>
 
       {/* Error banner */}
       <ProviderHealthBanner status={activeProviderStatus} />
-      <ThreadErrorBanner error={activeThread.error} />
+      <ThreadErrorBanner
+        error={activeThread.error}
+        onDismiss={() => setThreadError(activeThread.id, null)}
+      />
 
       <ChatTimelinePane
         timelineThreadId={activeThread.id}
@@ -4344,6 +4375,7 @@ interface ChatHeaderProps {
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
+  onDeleteProjectScript: (scriptId: string) => Promise<void>;
   onToggleDiff: () => void;
 }
 
@@ -4364,6 +4396,7 @@ const ChatHeaderActions = memo(function ChatHeaderActions({
   onRunProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
+  onDeleteProjectScript,
   onToggleDiff,
   isGitRepo,
 }: ChatHeaderActionsProps) {
@@ -4378,6 +4411,7 @@ const ChatHeaderActions = memo(function ChatHeaderActions({
           onRunScript={onRunProjectScript}
           onAddScript={onAddProjectScript}
           onUpdateScript={onUpdateProjectScript}
+          onDeleteScript={onDeleteProjectScript}
         />
       )}
       {activeProjectName && (
@@ -4440,6 +4474,7 @@ const ChatHeader = memo(function ChatHeader({
   onRunProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
+  onDeleteProjectScript,
   onToggleDiff,
 }: ChatHeaderProps) {
   return (
@@ -4484,13 +4519,20 @@ const ChatHeader = memo(function ChatHeader({
           onRunProjectScript={onRunProjectScript}
           onAddProjectScript={onAddProjectScript}
           onUpdateProjectScript={onUpdateProjectScript}
-        onToggleDiff={onToggleDiff}
-      />
+          onDeleteProjectScript={onDeleteProjectScript}
+          onToggleDiff={onToggleDiff}
+        />
     </div>
   );
 });
 
-const ThreadErrorBanner = memo(function ThreadErrorBanner({ error }: { error: string | null }) {
+const ThreadErrorBanner = memo(function ThreadErrorBanner({
+  error,
+  onDismiss,
+}: {
+  error: string | null;
+  onDismiss?: () => void;
+}) {
   if (!error) return null;
   return (
     <div className="pt-3 mx-auto max-w-3xl">
@@ -4499,6 +4541,18 @@ const ThreadErrorBanner = memo(function ThreadErrorBanner({ error }: { error: st
         <AlertDescription className="line-clamp-3" title={error}>
           {error}
         </AlertDescription>
+        {onDismiss ? (
+          <AlertAction>
+            <button
+              type="button"
+              aria-label="Dismiss error"
+              className="inline-flex size-6 items-center justify-center rounded-md text-destructive/60 transition-colors hover:text-destructive"
+              onClick={onDismiss}
+            >
+              <XIcon className="size-3.5" />
+            </button>
+          </AlertAction>
+        ) : null}
       </Alert>
     </div>
   );
