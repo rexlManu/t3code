@@ -36,6 +36,7 @@ import { type DraftThreadEnvMode, useComposerDraftStore } from "../composerDraft
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useProjectNavigation } from "../hooks/useProjectNavigation";
 import { getTerminalStatusIndicator, getThreadStatusPill } from "../lib/threadStatus";
+import { copyTextToClipboard } from "../lib/clipboard";
 import { toastManager } from "./ui/toast";
 import {
   AlertDialog,
@@ -151,13 +152,6 @@ const PROJECT_CONTEXT_MENU_ENTRIES: readonly SidebarContextMenuEntry<ProjectCont
   { type: "section", label: "More" },
   { type: "item", id: "delete", label: "Delete", icon: Trash2Icon },
 ];
-
-async function copyTextToClipboard(text: string): Promise<void> {
-  if (typeof navigator === "undefined" || navigator.clipboard?.writeText === undefined) {
-    throw new Error("Clipboard API unavailable.");
-  }
-  await navigator.clipboard.writeText(text);
-}
 
 function formatRelativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
