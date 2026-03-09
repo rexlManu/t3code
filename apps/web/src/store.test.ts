@@ -7,7 +7,13 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
-import { markThreadUnread, syncServerReadModel, type AppState } from "./store";
+import {
+  markThreadUnread,
+  selectSortedThreadIdsForProject,
+  selectThreadSidebarSummaryById,
+  syncServerReadModel,
+  type AppState,
+} from "./store";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
@@ -26,9 +32,11 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     proposedPlans: [],
     error: null,
     createdAt: "2026-02-13T00:00:00.000Z",
+    updatedAt: "2026-02-13T00:00:00.000Z",
     latestTurn: null,
     branch: null,
     worktreePath: null,
+    hasPendingApprovals: false,
     ...overrides,
   };
 }
@@ -41,6 +49,7 @@ function makeState(thread: Thread): AppState {
         name: "Project",
         cwd: "/tmp/project",
         model: "gpt-5-codex",
+        updatedAt: "2026-02-13T00:00:00.000Z",
         expanded: true,
         scripts: [],
       },
@@ -152,6 +161,7 @@ describe("store read model sync", () => {
     const existingThread = makeThread({
       model: "gpt-5.3-codex",
       createdAt: "2026-02-27T00:00:00.000Z",
+      updatedAt: "2026-02-27T00:00:00.000Z",
       lastVisitedAt: "2026-02-27T00:00:00.000Z",
       messages: [
         {
@@ -305,6 +315,7 @@ describe("store read model sync", () => {
       title: "Thread one",
       model: "gpt-5.3-codex",
       createdAt: "2026-02-27T00:00:00.000Z",
+      updatedAt: "2026-02-27T00:00:00.000Z",
       lastVisitedAt: "2026-02-27T00:00:00.000Z",
     });
     const threadTwo = makeThread({
@@ -312,6 +323,7 @@ describe("store read model sync", () => {
       title: "Thread two",
       model: "gpt-5.3-codex",
       createdAt: "2026-02-27T00:00:00.000Z",
+      updatedAt: "2026-02-27T00:00:00.000Z",
       lastVisitedAt: "2026-02-27T00:00:00.000Z",
       messages: [
         {
@@ -360,5 +372,139 @@ describe("store read model sync", () => {
     expect(next.threads[0]).toBe(initialState.threads[0]);
     expect(next.threads[1]).not.toBe(initialState.threads[1]);
     expect(next.threads[1]?.title).toBe("Thread two updated");
+  });
+
+  it("derives pending approvals during thread normalization", () => {
+    const initialState = makeState(makeThread());
+    const readModel = makeReadModel(
+      makeReadModelThread({
+        updatedAt: "2026-02-27T00:00:02.000Z",
+        activities: [
+          {
+            id: "activity-approval" as Thread["activities"][number]["id"],
+            kind: "approval.requested",
+            turnId: null,
+            summary: "Approval requested",
+            tone: "approval",
+            createdAt: "2026-02-27T00:00:02.000Z",
+            sequence: 2,
+            payload: {
+              requestId: "request-1",
+              requestKind: "command",
+              detail: "Run install command",
+            },
+          },
+        ],
+      }),
+    );
+
+    const next = syncServerReadModel(initialState, readModel);
+    expect(next.threads[0]?.hasPendingApprovals).toBe(true);
+    expect(selectThreadSidebarSummaryById(next, ThreadId.makeUnsafe("thread-1"))?.hasPendingApprovals).toBe(
+      true,
+    );
+  });
+
+  it("keeps sorted project thread ids stable when unrelated thread content changes", () => {
+    const projectOne = ProjectId.makeUnsafe("project-1");
+    const projectTwo = ProjectId.makeUnsafe("project-2");
+    const initialState: AppState = {
+      projects: [
+        makeState(
+          makeThread({
+            id: ThreadId.makeUnsafe("thread-1"),
+            projectId: projectOne,
+            updatedAt: "2026-02-27T00:00:00.000Z",
+          }),
+        ).projects[0]!,
+        {
+          id: projectTwo,
+          name: "Project two",
+          cwd: "/tmp/project-two",
+          model: "gpt-5-codex",
+          updatedAt: "2026-02-27T00:00:00.000Z",
+          expanded: true,
+          scripts: [],
+        },
+      ],
+      threads: [
+        makeThread({
+          id: ThreadId.makeUnsafe("thread-1"),
+          projectId: projectOne,
+          createdAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:00.000Z",
+        }),
+        makeThread({
+          id: ThreadId.makeUnsafe("thread-2"),
+          projectId: projectTwo,
+          createdAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:00.000Z",
+          messages: [
+            {
+              id: "message-2" as Thread["messages"][number]["id"],
+              role: "assistant",
+              text: "before",
+              createdAt: "2026-02-27T00:00:00.000Z",
+              completedAt: "2026-02-27T00:00:01.000Z",
+              streaming: false,
+            },
+          ],
+        }),
+      ],
+      threadsHydrated: true,
+    };
+    const initialIds = selectSortedThreadIdsForProject(initialState, projectOne);
+
+    const next = syncServerReadModel(initialState, {
+      ...makeReadModel(makeReadModelThread({})),
+      projects: [
+        {
+          id: projectOne,
+          title: "Project",
+          workspaceRoot: "/tmp/project",
+          defaultModel: "gpt-5.3-codex",
+          createdAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:00.000Z",
+          deletedAt: null,
+          scripts: [],
+        },
+        {
+          id: projectTwo,
+          title: "Project two",
+          workspaceRoot: "/tmp/project-two",
+          defaultModel: "gpt-5.3-codex",
+          createdAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:00.000Z",
+          deletedAt: null,
+          scripts: [],
+        },
+      ],
+      threads: [
+        makeReadModelThread({
+          id: ThreadId.makeUnsafe("thread-1"),
+          projectId: projectOne,
+        }),
+        makeReadModelThread({
+          id: ThreadId.makeUnsafe("thread-2"),
+          projectId: projectTwo,
+          updatedAt: "2026-02-27T00:00:02.000Z",
+          messages: [
+            {
+              id: "message-2" as Thread["messages"][number]["id"],
+              role: "assistant",
+              text: "after",
+              turnId: null,
+              streaming: false,
+              createdAt: "2026-02-27T00:00:00.000Z",
+              updatedAt: "2026-02-27T00:00:02.000Z",
+            },
+          ],
+        }),
+      ],
+    });
+
+    const nextIds = selectSortedThreadIdsForProject(next, projectOne);
+    expect(nextIds).toBe(initialIds);
+    expect(next.threads[0]).toBe(initialState.threads[0]);
   });
 });

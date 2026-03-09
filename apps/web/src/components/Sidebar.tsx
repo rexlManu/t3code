@@ -26,9 +26,16 @@ import { useAppSettings } from "../appSettings";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL } from "../branding";
 import { cn, newCommandId, newProjectId } from "../lib/utils";
-import { selectThreadById, useStore } from "../store";
+import {
+  selectProjectById,
+  selectProjectIdForThread,
+  selectSortedThreadIdsForProject,
+  selectThreadById,
+  selectThreadGitTargets,
+  selectThreadSidebarSummaryById,
+  useStore,
+} from "../store";
 import { isChatNewLocalShortcut, isChatNewShortcut, shortcutLabelForCommand } from "../keybindings";
-import { derivePendingApprovals } from "../session-logic";
 import { gitRemoveWorktreeMutationOptions, gitStatusQueryOptions } from "../lib/gitReactQuery";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { readNativeApi } from "../nativeApi";
@@ -234,7 +241,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   navigateToSingleThread: (threadId: ThreadId) => void;
   pr: ThreadPr;
 }) {
-  const thread = useStore((state) => selectThreadById(state, props.threadId));
+  const thread = useStore((state) => selectThreadSidebarSummaryById(state, props.threadId));
   const runningTerminalIds = useTerminalStateStore((state) =>
     selectThreadTerminalState(state.terminalStateByThreadId, props.threadId).runningTerminalIds,
   );
@@ -243,10 +250,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     return null;
   }
 
-  const threadStatus = getThreadStatusPill(
-    thread,
-    derivePendingApprovals(thread.activities).length > 0,
-  );
+  const threadStatus = getThreadStatusPill(thread);
   const prStatus = prStatusIndicator(props.pr);
   const terminalStatus = getTerminalStatusIndicator(runningTerminalIds);
 
@@ -379,9 +383,188 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   );
 });
 
+const SidebarProjectSection = memo(function SidebarProjectSection(props: {
+  projectId: ProjectId;
+  activeProjectId: ProjectId | null;
+  routeThreadId: ThreadId | null;
+  renamingThreadId: ThreadId | null;
+  renamingTitle: string;
+  renamingInputRef: MutableRefObject<HTMLInputElement | null>;
+  renamingCommittedRef: MutableRefObject<boolean>;
+  setRenamingTitle: (value: string) => void;
+  commitRename: (threadId: ThreadId, nextTitle: string, previousTitle: string) => Promise<void>;
+  cancelRename: () => void;
+  openProjectContextMenu: (projectId: ProjectId, position: { x: number; y: number }) => void;
+  openThreadContextMenu: (threadId: ThreadId, position: { x: number; y: number }) => void;
+  openPrLink: (event: MouseEvent<HTMLElement>, prUrl: string) => void;
+  handleOpenInSplitView: (threadId: ThreadId) => void;
+  navigateToSingleThread: (threadId: ThreadId, options?: { replace?: boolean }) => void;
+  handleNewThread: (
+    projectId: ProjectId,
+    options?: {
+      branch?: string | null;
+      worktreePath?: string | null;
+      envMode?: DraftThreadEnvMode;
+    },
+  ) => Promise<void>;
+  toggleProject: (projectId: ProjectId) => void;
+  newThreadShortcutLabel: string | null;
+  expandedThreadListsByProject: ReadonlySet<ProjectId>;
+  expandThreadListForProject: (projectId: ProjectId) => void;
+  collapseThreadListForProject: (projectId: ProjectId) => void;
+  prByThreadId: ReadonlyMap<ThreadId, ThreadPr>;
+}) {
+  const project = useStore((state) => selectProjectById(state, props.projectId));
+  const threadIds = useStore((state) => selectSortedThreadIdsForProject(state, props.projectId));
+
+  if (!project) {
+    return null;
+  }
+
+  const isThreadListExpanded = props.expandedThreadListsByProject.has(project.id);
+  const hasHiddenThreads = threadIds.length > THREAD_PREVIEW_LIMIT;
+  const visibleThreadIds =
+    hasHiddenThreads && !isThreadListExpanded
+      ? threadIds.slice(0, THREAD_PREVIEW_LIMIT)
+      : threadIds;
+  const isProjectActive = props.activeProjectId === project.id || project.expanded;
+  const ProjectFolderIcon = project.expanded ? FolderOpenIcon : FolderIcon;
+
+  return (
+    <Collapsible
+      className="group/collapsible"
+      open={project.expanded}
+      onOpenChange={(open) => {
+        if (open === project.expanded) return;
+        props.toggleProject(project.id);
+      }}
+    >
+      <SidebarMenuItem>
+        <div className="group/project-header relative">
+          <CollapsibleTrigger
+            render={
+              <SidebarMenuButton
+                size="sm"
+                className={cn(
+                  "rounded gap-2.5 px-2.5 py-2 text-left transition-colors hover:bg-accent/80 hover:text-foreground group-hover/project-header:bg-accent/80 group-hover/project-header:text-foreground",
+                  isProjectActive &&
+                    "bg-primary/14 text-primary hover:bg-primary/16 hover:text-primary group-hover/project-header:bg-primary/16 group-hover/project-header:text-primary",
+                )}
+              />
+            }
+            onContextMenu={(event) => {
+              event.preventDefault();
+              props.openProjectContextMenu(project.id, {
+                x: event.clientX,
+                y: event.clientY,
+              });
+            }}
+          >
+            <ProjectFolderIcon
+              className={cn(
+                "size-4 shrink-0 transition-colors",
+                isProjectActive ? "text-primary" : "text-muted-foreground/70",
+              )}
+            />
+            <span
+              className={cn(
+                "flex-1 truncate text-xs font-medium transition-colors",
+                isProjectActive ? "text-primary" : "text-muted-foreground/70",
+              )}
+            >
+              {project.name}
+            </span>
+          </CollapsibleTrigger>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={`Create new thread in ${project.name}`}
+                  className={cn(
+                    "absolute top-1/2 right-1 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded opacity-0 transition-all duration-150 group-hover/project-header:opacity-100 focus-visible:opacity-100",
+                    isProjectActive
+                      ? "text-primary/80 hover:bg-primary/10 hover:text-primary"
+                      : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground/80",
+                  )}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void props.handleNewThread(project.id);
+                  }}
+                >
+                  <SquarePenIcon className="size-3.5" />
+                </button>
+              }
+            />
+            <TooltipPopup side="top">
+              {props.newThreadShortcutLabel
+                ? `New thread (${props.newThreadShortcutLabel})`
+                : "New thread"}
+            </TooltipPopup>
+          </Tooltip>
+        </div>
+
+        <CollapsibleContent>
+          <SidebarMenuSub className="relative mx-0 my-1.5 w-full translate-x-0 gap-1 border-l-0 px-0 py-0 pl-7 before:absolute before:top-0 before:bottom-2 before:left-[1.125rem] before:w-px before:bg-border/60 before:content-['']">
+            {visibleThreadIds.map((threadId) => (
+              <SidebarThreadRow
+                key={threadId}
+                threadId={threadId}
+                isActive={props.routeThreadId === threadId}
+                isRenaming={props.renamingThreadId === threadId}
+                renamingTitle={props.renamingTitle}
+                renamingInputRef={props.renamingInputRef}
+                renamingCommittedRef={props.renamingCommittedRef}
+                setRenamingTitle={props.setRenamingTitle}
+                commitRename={props.commitRename}
+                cancelRename={props.cancelRename}
+                openThreadContextMenu={props.openThreadContextMenu}
+                openPrLink={props.openPrLink}
+                handleOpenInSplitView={props.handleOpenInSplitView}
+                navigateToSingleThread={props.navigateToSingleThread}
+                pr={props.prByThreadId.get(threadId) ?? null}
+              />
+            ))}
+
+            {hasHiddenThreads && !isThreadListExpanded && (
+              <SidebarMenuSubItem className="w-full">
+                <SidebarMenuSubButton
+                  render={<button type="button" />}
+                  size="sm"
+                  className="h-6 w-full translate-x-0 justify-start rounded px-2 text-left text-[10px] text-muted-foreground/60 transition-colors hover:bg-accent/55 hover:text-foreground/80"
+                  onClick={() => {
+                    props.expandThreadListForProject(project.id);
+                  }}
+                >
+                  <span>Show more</span>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            )}
+            {hasHiddenThreads && isThreadListExpanded && (
+              <SidebarMenuSubItem className="w-full">
+                <SidebarMenuSubButton
+                  render={<button type="button" />}
+                  size="sm"
+                  className="h-6 w-full translate-x-0 justify-start rounded px-2 text-left text-[10px] text-muted-foreground/60 transition-colors hover:bg-accent/55 hover:text-foreground/80"
+                  onClick={() => {
+                    props.collapseThreadListForProject(project.id);
+                  }}
+                >
+                  <span>Show less</span>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            )}
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </SidebarMenuItem>
+    </Collapsible>
+  );
+});
+
 export default function Sidebar() {
   const projects = useStore((store) => store.projects);
-  const threads = useStore((store) => store.threads);
+  const threadGitTargets = useStore((state) => selectThreadGitTargets(state));
   const markThreadUnread = useStore((store) => store.markThreadUnread);
   const toggleProject = useStore((store) => store.toggleProject);
   const clearComposerDraftForThread = useComposerDraftStore((store) => store.clearThreadDraft);
@@ -464,29 +647,30 @@ export default function Sidebar() {
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
+  const getCurrentStoreState = useCallback(() => useStore.getState(), []);
   const projectCwdById = useMemo(
     () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
     [projects],
   );
-  const threadGitTargets = useMemo(
+  const threadGitStatusTargets = useMemo(
     () =>
-      threads.map((thread) => ({
-        threadId: thread.id,
+      threadGitTargets.map((thread) => ({
+        threadId: thread.threadId,
         branch: thread.branch,
         cwd: thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null,
       })),
-    [projectCwdById, threads],
+    [projectCwdById, threadGitTargets],
   );
   const threadGitStatusCwds = useMemo(
     () => [
       ...new Set(
-        threadGitTargets
+        threadGitStatusTargets
           .filter((target) => target.branch !== null)
           .map((target) => target.cwd)
           .filter((cwd): cwd is string => cwd !== null),
       ),
     ],
-    [threadGitTargets],
+    [threadGitStatusTargets],
   );
   const threadGitStatusQueries = useQueries({
     queries: threadGitStatusCwds.map((cwd) => ({
@@ -507,14 +691,14 @@ export default function Sidebar() {
     }
 
     const map = new Map<ThreadId, ThreadPr>();
-    for (const target of threadGitTargets) {
+    for (const target of threadGitStatusTargets) {
       const status = target.cwd ? statusByCwd.get(target.cwd) : undefined;
       const branchMatches =
         target.branch !== null && status?.branch !== null && status?.branch === target.branch;
       map.set(target.threadId, branchMatches ? (status?.pr ?? null) : null);
     }
     return map;
-  }, [threadGitStatusCwds, threadGitStatusQueries, threadGitTargets]);
+  }, [threadGitStatusCwds, threadGitStatusQueries, threadGitStatusTargets]);
 
   const openPrLink = useCallback((event: React.MouseEvent<HTMLElement>, prUrl: string) => {
     event.preventDefault();
@@ -552,18 +736,11 @@ export default function Sidebar() {
 
   const focusMostRecentThreadForProject = useCallback(
     (projectId: ProjectId) => {
-      const latestThread = threads
-        .filter((thread) => thread.projectId === projectId)
-        .toSorted((a, b) => {
-          const byDate = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-          if (byDate !== 0) return byDate;
-          return b.id.localeCompare(a.id);
-        })[0];
-      if (!latestThread) return;
-
-      navigateToSingleThread(latestThread.id);
+      const latestThreadId = selectSortedThreadIdsForProject(getCurrentStoreState(), projectId)[0];
+      if (!latestThreadId) return;
+      navigateToSingleThread(latestThreadId);
     },
-    [navigateToSingleThread, threads],
+    [getCurrentStoreState, navigateToSingleThread],
   );
 
   const addProjectFromPath = useCallback(
@@ -696,11 +873,12 @@ export default function Sidebar() {
       const api = readNativeApi();
       if (!api) return false;
 
-      const thread = threads.find((entry) => entry.id === threadId);
+      const currentState = getCurrentStoreState();
+      const thread = selectThreadById(currentState, threadId);
       if (!thread) return true;
 
-      const threadProject = projects.find((project) => project.id === thread.projectId);
-      const orphanedWorktreePath = getOrphanedWorktreePathForThread(threads, threadId);
+      const threadProject = selectProjectById(currentState, thread.projectId);
+      const orphanedWorktreePath = getOrphanedWorktreePathForThread(currentState.threads, threadId);
       const displayWorktreePath = orphanedWorktreePath
         ? formatWorktreePathForDisplay(orphanedWorktreePath)
         : null;
@@ -733,7 +911,7 @@ export default function Sidebar() {
         ? buildPaneIds(routeThreadId, currentSplitParam, MAX_SPLIT_PANES)
         : [];
       const shouldNavigateToFallback = visiblePaneIds.includes(threadId);
-      const fallbackThreadId = threads.find((entry) => entry.id !== threadId)?.id ?? null;
+      const fallbackThreadId = currentState.threads.find((entry) => entry.id !== threadId)?.id ?? null;
 
       try {
         await api.orchestration.dispatchCommand({
@@ -808,12 +986,11 @@ export default function Sidebar() {
       clearProjectDraftThreadById,
       clearTerminalState,
       currentSplitParam,
+      getCurrentStoreState,
       navigate,
       navigateToSingleThread,
-      projects,
       removeWorktreeMutation,
       routeThreadId,
-      threads,
     ],
   );
 
@@ -822,7 +999,7 @@ export default function Sidebar() {
       const api = readNativeApi();
       if (!api) return false;
 
-      const project = projects.find((entry) => entry.id === projectId);
+      const project = selectProjectById(getCurrentStoreState(), projectId);
       if (!project) return true;
 
       try {
@@ -849,7 +1026,7 @@ export default function Sidebar() {
 
       return true;
     },
-    [clearComposerDraftForThread, clearProjectDraftThreadId, getDraftThreadByProjectId, projects],
+    [clearComposerDraftForThread, clearProjectDraftThreadId, getCurrentStoreState, getDraftThreadByProjectId],
   );
 
   const handleDeleteDialogConfirm = useCallback(async () => {
@@ -884,7 +1061,8 @@ export default function Sidebar() {
     async (threadId: ThreadId, clicked: ThreadContextMenuAction) => {
       const api = readNativeApi();
       if (!api) return;
-      const thread = threads.find((t) => t.id === threadId);
+      const currentState = getCurrentStoreState();
+      const thread = selectThreadById(currentState, threadId);
       if (!thread) return;
 
       if (clicked === "rename") {
@@ -921,8 +1099,8 @@ export default function Sidebar() {
       }
       if (clicked !== "delete") return;
 
-      const threadProject = projects.find((project) => project.id === thread.projectId);
-      const orphanedWorktreePath = getOrphanedWorktreePathForThread(threads, threadId);
+      const threadProject = selectProjectById(currentState, thread.projectId);
+      const orphanedWorktreePath = getOrphanedWorktreePathForThread(currentState.threads, threadId);
       const canDeleteWorktree = orphanedWorktreePath !== null && threadProject !== undefined;
 
       if (!appSettings.confirmThreadDelete && !canDeleteWorktree) {
@@ -943,11 +1121,10 @@ export default function Sidebar() {
     },
     [
       appSettings.confirmThreadDelete,
+      getCurrentStoreState,
       handleOpenInSplitView,
       markThreadUnread,
       performThreadDelete,
-      projects,
-      threads,
     ],
   );
 
@@ -955,10 +1132,11 @@ export default function Sidebar() {
     async (projectId: ProjectId, clicked: ProjectContextMenuAction) => {
       if (clicked !== "delete") return;
 
-      const project = projects.find((entry) => entry.id === projectId);
+      const currentState = getCurrentStoreState();
+      const project = selectProjectById(currentState, projectId);
       if (!project) return;
 
-      const projectThreads = threads.filter((thread) => thread.projectId === projectId);
+      const projectThreads = selectSortedThreadIdsForProject(currentState, projectId);
       if (projectThreads.length > 0) {
         toastManager.add({
           type: "warning",
@@ -975,12 +1153,12 @@ export default function Sidebar() {
         projectName: project.name,
       });
     },
-    [projects, threads],
+    [getCurrentStoreState],
   );
 
   const openThreadContextMenu = useCallback(
     (threadId: ThreadId, position: { x: number; y: number }) => {
-      const thread = threads.find((entry) => entry.id === threadId);
+      const thread = selectThreadById(getCurrentStoreState(), threadId);
       if (!thread) return;
       setContextMenuState({
         kind: "thread",
@@ -988,7 +1166,7 @@ export default function Sidebar() {
         position,
       });
     },
-    [threads],
+    [getCurrentStoreState],
   );
 
   const openProjectContextMenu = useCallback(
@@ -1029,7 +1207,7 @@ export default function Sidebar() {
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
       const activeThread = routeThreadId
-        ? threads.find((thread) => thread.id === routeThreadId)
+        ? selectThreadById(getCurrentStoreState(), routeThreadId)
         : undefined;
       const activeDraftThread = routeThreadId ? getDraftThread(routeThreadId) : null;
       if (isChatNewLocalShortcut(event, keybindings)) {
@@ -1056,7 +1234,7 @@ export default function Sidebar() {
     return () => {
       window.removeEventListener("keydown", onWindowKeyDown);
     };
-  }, [getDraftThread, handleNewThread, keybindings, projects, routeThreadId, threads]);
+  }, [getCurrentStoreState, getDraftThread, handleNewThread, keybindings, projects, routeThreadId]);
 
   useEffect(() => {
     if (!isElectron) return;
@@ -1118,14 +1296,12 @@ export default function Sidebar() {
       shortcutLabelForCommand(keybindings, "chat.new"),
     [keybindings],
   );
-  const activeProjectId = useMemo(() => {
-    if (!routeThreadId) return null;
-    return (
-      threads.find((thread) => thread.id === routeThreadId)?.projectId ??
-      getDraftThread(routeThreadId)?.projectId ??
-      null
-    );
-  }, [getDraftThread, routeThreadId, threads]);
+  const activeProjectId = useStore((state) => {
+    if (!routeThreadId) {
+      return null;
+    }
+    return selectProjectIdForThread(state, routeThreadId) ?? getDraftThread(routeThreadId)?.projectId ?? null;
+  });
 
   const handleDesktopUpdateButtonClick = useCallback(() => {
     const bridge = window.desktopBridge;
@@ -1250,155 +1426,33 @@ export default function Sidebar() {
           </div>
 
           <SidebarMenu>
-            {projects.map((project) => {
-              const projectThreads = threads
-                .filter((thread) => thread.projectId === project.id)
-                .toSorted((a, b) => {
-                  const byDate = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-                  if (byDate !== 0) return byDate;
-                  return b.id.localeCompare(a.id);
-                });
-              const isThreadListExpanded = expandedThreadListsByProject.has(project.id);
-              const hasHiddenThreads = projectThreads.length > THREAD_PREVIEW_LIMIT;
-              const visibleThreads =
-                hasHiddenThreads && !isThreadListExpanded
-                  ? projectThreads.slice(0, THREAD_PREVIEW_LIMIT)
-                  : projectThreads;
-              const isProjectActive = activeProjectId === project.id || project.expanded;
-              const ProjectFolderIcon = project.expanded ? FolderOpenIcon : FolderIcon;
-
-              return (
-                <Collapsible
-                  key={project.id}
-                  className="group/collapsible"
-                  open={project.expanded}
-                  onOpenChange={(open) => {
-                    if (open === project.expanded) return;
-                    toggleProject(project.id);
-                  }}
-                >
-                  <SidebarMenuItem>
-                    <div className="group/project-header relative">
-                      <CollapsibleTrigger
-                        render={
-                          <SidebarMenuButton
-                            size="sm"
-                            className={cn(
-                              "rounded gap-2.5 px-2.5 py-2 text-left transition-colors hover:bg-accent/80 hover:text-foreground group-hover/project-header:bg-accent/80 group-hover/project-header:text-foreground",
-                              isProjectActive &&
-                                "bg-primary/14 text-primary hover:bg-primary/16 hover:text-primary group-hover/project-header:bg-primary/16 group-hover/project-header:text-primary",
-                            )}
-                          />
-                        }
-                        onContextMenu={(event) => {
-                          event.preventDefault();
-                          openProjectContextMenu(project.id, {
-                            x: event.clientX,
-                            y: event.clientY,
-                          });
-                        }}
-                      >
-                        <ProjectFolderIcon
-                          className={cn(
-                            "size-4 shrink-0 transition-colors",
-                            isProjectActive ? "text-primary" : "text-muted-foreground/70",
-                          )}
-                        />
-                        <span
-                          className={cn(
-                            "flex-1 truncate text-xs font-medium transition-colors",
-                            isProjectActive ? "text-primary" : "text-muted-foreground/70",
-                          )}
-                        >
-                          {project.name}
-                        </span>
-                      </CollapsibleTrigger>
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <button
-                              type="button"
-                              aria-label={`Create new thread in ${project.name}`}
-                              className={cn(
-                                "absolute top-1/2 right-1 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded opacity-0 transition-all duration-150 group-hover/project-header:opacity-100 focus-visible:opacity-100",
-                                isProjectActive
-                                  ? "text-primary/80 hover:bg-primary/10 hover:text-primary"
-                                  : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground/80",
-                              )}
-                              onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                void handleNewThread(project.id);
-                              }}
-                            >
-                              <SquarePenIcon className="size-3.5" />
-                            </button>
-                          }
-                        />
-                        <TooltipPopup side="top">
-                          {newThreadShortcutLabel
-                            ? `New thread (${newThreadShortcutLabel})`
-                            : "New thread"}
-                        </TooltipPopup>
-                      </Tooltip>
-                    </div>
-
-                    <CollapsibleContent>
-                      <SidebarMenuSub className="relative mx-0 my-1.5 w-full translate-x-0 gap-1 border-l-0 px-0 py-0 pl-7 before:absolute before:top-0 before:bottom-2 before:left-[1.125rem] before:w-px before:bg-border/60 before:content-['']">
-                        {visibleThreads.map((thread) => (
-                          <SidebarThreadRow
-                            key={thread.id}
-                            threadId={thread.id}
-                            isActive={routeThreadId === thread.id}
-                            isRenaming={renamingThreadId === thread.id}
-                            renamingTitle={renamingTitle}
-                            renamingInputRef={renamingInputRef}
-                            renamingCommittedRef={renamingCommittedRef}
-                            setRenamingTitle={setRenamingTitle}
-                            commitRename={commitRename}
-                            cancelRename={cancelRename}
-                            openThreadContextMenu={openThreadContextMenu}
-                            openPrLink={openPrLink}
-                            handleOpenInSplitView={handleOpenInSplitView}
-                            navigateToSingleThread={navigateToSingleThread}
-                            pr={prByThreadId.get(thread.id) ?? null}
-                          />
-                        ))}
-
-                        {hasHiddenThreads && !isThreadListExpanded && (
-                          <SidebarMenuSubItem className="w-full">
-                            <SidebarMenuSubButton
-                              render={<button type="button" />}
-                              size="sm"
-                              className="h-6 w-full translate-x-0 justify-start rounded px-2 text-left text-[10px] text-muted-foreground/60 transition-colors hover:bg-accent/55 hover:text-foreground/80"
-                              onClick={() => {
-                                expandThreadListForProject(project.id);
-                              }}
-                            >
-                              <span>Show more</span>
-                            </SidebarMenuSubButton>
-                          </SidebarMenuSubItem>
-                        )}
-                        {hasHiddenThreads && isThreadListExpanded && (
-                          <SidebarMenuSubItem className="w-full">
-                            <SidebarMenuSubButton
-                              render={<button type="button" />}
-                              size="sm"
-                              className="h-6 w-full translate-x-0 justify-start rounded px-2 text-left text-[10px] text-muted-foreground/60 transition-colors hover:bg-accent/55 hover:text-foreground/80"
-                              onClick={() => {
-                                collapseThreadListForProject(project.id);
-                              }}
-                            >
-                              <span>Show less</span>
-                            </SidebarMenuSubButton>
-                          </SidebarMenuSubItem>
-                        )}
-                      </SidebarMenuSub>
-                    </CollapsibleContent>
-                  </SidebarMenuItem>
-                </Collapsible>
-              );
-            })}
+            {projects.map((project) => (
+              <SidebarProjectSection
+                key={project.id}
+                projectId={project.id}
+                activeProjectId={activeProjectId}
+                routeThreadId={routeThreadId}
+                renamingThreadId={renamingThreadId}
+                renamingTitle={renamingTitle}
+                renamingInputRef={renamingInputRef}
+                renamingCommittedRef={renamingCommittedRef}
+                setRenamingTitle={setRenamingTitle}
+                commitRename={commitRename}
+                cancelRename={cancelRename}
+                openProjectContextMenu={openProjectContextMenu}
+                openThreadContextMenu={openThreadContextMenu}
+                openPrLink={openPrLink}
+                handleOpenInSplitView={handleOpenInSplitView}
+                navigateToSingleThread={navigateToSingleThread}
+                handleNewThread={handleNewThread}
+                toggleProject={toggleProject}
+                newThreadShortcutLabel={newThreadShortcutLabel}
+                expandedThreadListsByProject={expandedThreadListsByProject}
+                expandThreadListForProject={expandThreadListForProject}
+                collapseThreadListForProject={collapseThreadListForProject}
+                prByThreadId={prByThreadId}
+              />
+            ))}
           </SidebarMenu>
 
           {projects.length === 0 && (

@@ -16,6 +16,7 @@ import {
 import { PROVIDER_ORDER } from "@t3tools/shared/provider";
 import { create } from "zustand";
 import { type ChatMessage, type Project, type Thread } from "./types";
+import { derivePendingApprovals } from "./session-logic";
 
 // ── State ────────────────────────────────────────────────────────────
 
@@ -23,6 +24,25 @@ export interface AppState {
   projects: Project[];
   threads: Thread[];
   threadsHydrated: boolean;
+}
+
+export interface ThreadSidebarSummary {
+  id: Thread["id"];
+  projectId: Thread["projectId"];
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  latestTurn: Thread["latestTurn"];
+  lastVisitedAt: Thread["lastVisitedAt"];
+  session: Thread["session"];
+  hasPendingApprovals: boolean;
+}
+
+export interface ThreadGitTarget {
+  threadId: Thread["id"];
+  projectId: Thread["projectId"];
+  branch: Thread["branch"];
+  worktreePath: Thread["worktreePath"];
 }
 
 const PERSISTED_STATE_KEY = "t3code:renderer-state:v8";
@@ -160,6 +180,18 @@ function reconcileValue<T>(previous: T | undefined, next: T): T {
   return previous !== undefined && deepEqual(previous, next) ? previous : next;
 }
 
+function reconcileArrayIdentity<T>(previous: readonly T[], next: readonly T[]): readonly T[] {
+  if (previous.length !== next.length) {
+    return next;
+  }
+  for (let index = 0; index < previous.length; index += 1) {
+    if (previous[index] !== next[index]) {
+      return next;
+    }
+  }
+  return previous;
+}
+
 function reconcileArrayByKey<TPrevious, TNext, TResult, TKey>(
   previous: readonly TPrevious[],
   next: readonly TNext[],
@@ -193,41 +225,43 @@ function normalizeProjectScripts(
   ) as ProjectScript[];
 }
 
+function normalizeProject(
+  project: OrchestrationReadModel["projects"][number],
+  previous?: Project,
+): Project {
+  if (previous && previous.updatedAt === project.updatedAt) {
+    return previous;
+  }
+
+  const nextProject: Project = {
+    id: project.id,
+    name: project.title,
+    cwd: project.workspaceRoot,
+    model:
+      previous?.model ??
+      resolveModelSlug(project.defaultModel ?? DEFAULT_MODEL_BY_PROVIDER.codex),
+    updatedAt: project.updatedAt,
+    expanded:
+      previous?.expanded ??
+      (persistedExpandedProjectCwds.size > 0
+        ? persistedExpandedProjectCwds.has(project.workspaceRoot)
+        : true),
+    scripts: normalizeProjectScripts(project.scripts, previous?.scripts ?? []),
+  };
+
+  return reconcileValue(previous, nextProject);
+}
+
 function mapProjectsFromReadModel(
   incoming: OrchestrationReadModel["projects"],
   previous: Project[],
 ): Project[] {
-  const nextProjects = incoming.map((project, index) => {
-    const existing =
-      previous.find((entry) => entry.id === project.id) ??
-      previous.find((entry) => entry.cwd === project.workspaceRoot);
-    const nextProject: Project = {
-      id: project.id,
-      name: project.title,
-      cwd: project.workspaceRoot,
-      model:
-        existing?.model ??
-        resolveModelSlug(project.defaultModel ?? DEFAULT_MODEL_BY_PROVIDER.codex),
-      expanded:
-        existing?.expanded ??
-        (persistedExpandedProjectCwds.size > 0
-          ? persistedExpandedProjectCwds.has(project.workspaceRoot)
-          : true),
-      scripts: normalizeProjectScripts(project.scripts, existing?.scripts ?? []),
-    };
-    if (existing) {
-      return reconcileValue(existing, nextProject);
-    }
-    const previousAtIndex = previous[index];
-    return reconcileValue(previousAtIndex, nextProject);
-  });
-  return reconcileArrayByKey(
-    previous,
-    nextProjects,
-    (project) => project.id,
-    (project) => project.id,
-    (previousProject, nextProject) => reconcileValue(previousProject, nextProject),
-  ) as Project[];
+  const previousById = new Map(previous.map((project) => [project.id, project] as const));
+  const previousByCwd = new Map(previous.map((project) => [project.cwd, project] as const));
+  const nextProjects = incoming.map((project) =>
+    normalizeProject(project, previousById.get(project.id) ?? previousByCwd.get(project.workspaceRoot)),
+  );
+  return reconcileArrayIdentity(previous, nextProjects) as Project[];
 }
 
 function toLegacySessionStatus(
@@ -352,6 +386,10 @@ function normalizeThread(
   thread: OrchestrationReadModel["threads"][number],
   previous?: Thread,
 ): Thread {
+  if (previous && previous.updatedAt === thread.updatedAt) {
+    return previous;
+  }
+
   const messages = reconcileArrayByKey(
     previous?.messages ?? [],
     thread.messages,
@@ -434,12 +472,14 @@ function normalizeThread(
     proposedPlans,
     error: thread.session?.lastError ?? null,
     createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
     latestTurn: reconcileValue(previous?.latestTurn ?? undefined, thread.latestTurn),
     lastVisitedAt: previous?.lastVisitedAt ?? thread.updatedAt,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
     turnDiffSummaries,
     activities,
+    hasPendingApprovals: derivePendingApprovals(activities).length > 0,
   };
   return reconcileValue(previous, normalizedThread);
 }
@@ -452,12 +492,10 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     state.projects,
   );
   const activeThreads = readModel.threads.filter((thread) => thread.deletedAt === null);
-  const threads = reconcileArrayByKey(
+  const previousThreadsById = new Map(state.threads.map((thread) => [thread.id, thread] as const));
+  const threads = reconcileArrayIdentity(
     state.threads,
-    activeThreads,
-    (thread) => thread.id,
-    (thread) => thread.id,
-    (previousThread, nextThread) => normalizeThread(nextThread, previousThread),
+    activeThreads.map((thread) => normalizeThread(thread, previousThreadsById.get(thread.id))),
   ) as Thread[];
   if (
     projects === state.projects &&
@@ -557,7 +595,7 @@ export function setThreadBranch(
 
 export function selectThreadById(state: AppState, threadId: ThreadId | null | undefined): Thread | undefined {
   if (!threadId) return undefined;
-  return state.threads.find((thread) => thread.id === threadId);
+  return getThreadMap(state.threads).get(threadId);
 }
 
 export function selectProjectById(
@@ -565,7 +603,7 @@ export function selectProjectById(
   projectId: Project["id"] | null | undefined,
 ): Project | undefined {
   if (!projectId) return undefined;
-  return state.projects.find((project) => project.id === projectId);
+  return getProjectMap(state.projects).get(projectId);
 }
 
 export function selectThreadExists(state: AppState, threadId: ThreadId | null | undefined): boolean {
@@ -610,19 +648,164 @@ export function selectProjectIds(state: AppState): Project["id"][] {
   return cachedProjectIds;
 }
 
-const cachedThreadIdsForProject = new Map<
+let cachedThreadSourceForGrouping: AppState["threads"] | null = null;
+let cachedThreadRefsByProject = new Map<Project["id"], Thread[]>();
+
+function getProjectMap(projects: AppState["projects"]): ReadonlyMap<Project["id"], Project> {
+  if (projects !== cachedProjectMapSource) {
+    cachedProjectMapSource = projects;
+    cachedProjectMap = new Map(projects.map((project) => [project.id, project] as const));
+  }
+  return cachedProjectMap;
+}
+
+let cachedProjectMapSource: AppState["projects"] | null = null;
+let cachedProjectMap = new Map<Project["id"], Project>();
+
+function getThreadMap(threads: AppState["threads"]): ReadonlyMap<Thread["id"], Thread> {
+  if (threads !== cachedThreadMapSource) {
+    cachedThreadMapSource = threads;
+    cachedThreadMap = new Map(threads.map((thread) => [thread.id, thread] as const));
+  }
+  return cachedThreadMap;
+}
+
+let cachedThreadMapSource: AppState["threads"] | null = null;
+let cachedThreadMap = new Map<Thread["id"], Thread>();
+
+function getThreadRefsByProject(
+  threads: AppState["threads"],
+): ReadonlyMap<Project["id"], Thread[]> {
+  if (threads === cachedThreadSourceForGrouping) {
+    return cachedThreadRefsByProject;
+  }
+
+  cachedThreadSourceForGrouping = threads;
+  const next = new Map<Project["id"], Thread[]>();
+  for (const thread of threads) {
+    const existing = next.get(thread.projectId);
+    if (existing) {
+      existing.push(thread);
+      continue;
+    }
+    next.set(thread.projectId, [thread]);
+  }
+  cachedThreadRefsByProject = next;
+  return cachedThreadRefsByProject;
+}
+
+function compareThreadsForSidebar(left: Thread, right: Thread): number {
+  const byDate = Date.parse(right.createdAt) - Date.parse(left.createdAt);
+  if (byDate !== 0) {
+    return byDate;
+  }
+  return right.id.localeCompare(left.id);
+}
+
+const cachedSortedThreadIdsForProject = new Map<
   Project["id"],
-  { threads: AppState["threads"]; ids: ThreadId[] }
+  { threadRefs: readonly Thread[]; ids: readonly ThreadId[] }
 >();
 
-export function selectThreadIdsForProject(state: AppState, projectId: Project["id"]): ThreadId[] {
-  const cached = cachedThreadIdsForProject.get(projectId);
-  if (cached && cached.threads === state.threads) {
+export function selectSortedThreadIdsForProject(
+  state: AppState,
+  projectId: Project["id"],
+): readonly ThreadId[] {
+  const threadRefs = getThreadRefsByProject(state.threads).get(projectId) ?? [];
+  const cached = cachedSortedThreadIdsForProject.get(projectId);
+  if (
+    cached &&
+    cached.threadRefs.length === threadRefs.length &&
+    cached.threadRefs.every((thread, index) => thread === threadRefs[index])
+  ) {
     return cached.ids;
   }
-  const ids = state.threads.filter((thread) => thread.projectId === projectId).map((thread) => thread.id);
-  cachedThreadIdsForProject.set(projectId, { threads: state.threads, ids });
-  return ids;
+
+  const sortedThreadIds = threadRefs.toSorted(compareThreadsForSidebar).map((thread) => thread.id);
+  if (
+    cached &&
+    cached.ids.length === sortedThreadIds.length &&
+    cached.ids.every((threadId, index) => threadId === sortedThreadIds[index])
+  ) {
+    cachedSortedThreadIdsForProject.set(projectId, {
+      threadRefs,
+      ids: cached.ids,
+    });
+    return cached.ids;
+  }
+
+  cachedSortedThreadIdsForProject.set(projectId, {
+    threadRefs,
+    ids: sortedThreadIds,
+  });
+  return sortedThreadIds;
+}
+
+export function selectThreadIdsForProject(state: AppState, projectId: Project["id"]): ThreadId[] {
+  return selectSortedThreadIdsForProject(state, projectId) as ThreadId[];
+}
+
+const cachedThreadSidebarSummaryById = new Map<
+  Thread["id"],
+  { thread: Thread; summary: ThreadSidebarSummary }
+>();
+
+export function selectThreadSidebarSummaryById(
+  state: AppState,
+  threadId: Thread["id"] | null | undefined,
+): ThreadSidebarSummary | undefined {
+  const thread = selectThreadById(state, threadId);
+  if (!thread) {
+    return undefined;
+  }
+
+  const cached = cachedThreadSidebarSummaryById.get(thread.id);
+  if (cached?.thread === thread) {
+    return cached.summary;
+  }
+
+  const summary: ThreadSidebarSummary = {
+    id: thread.id,
+    projectId: thread.projectId,
+    title: thread.title,
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+    latestTurn: thread.latestTurn,
+    lastVisitedAt: thread.lastVisitedAt,
+    session: thread.session,
+    hasPendingApprovals: thread.hasPendingApprovals,
+  };
+  cachedThreadSidebarSummaryById.set(thread.id, { thread, summary });
+  return summary;
+}
+
+let cachedThreadGitTargetSource: readonly Thread[] = [];
+let cachedThreadGitTargetsResult: readonly ThreadGitTarget[] = [];
+
+export function selectThreadGitTargets(state: AppState): readonly ThreadGitTarget[] {
+  if (
+    state.threads.length === cachedThreadGitTargetSource.length &&
+    state.threads.every((thread, index) => {
+      const previous = cachedThreadGitTargetSource[index];
+      return (
+        previous?.id === thread.id &&
+        previous.projectId === thread.projectId &&
+        previous.branch === thread.branch &&
+        previous.worktreePath === thread.worktreePath
+      );
+    })
+  ) {
+    return cachedThreadGitTargetsResult;
+  }
+
+  cachedThreadGitTargetSource = state.threads;
+  cachedThreadGitTargetsResult = state.threads.map((thread) => ({
+    threadId: thread.id,
+    projectId: thread.projectId,
+    branch: thread.branch,
+    worktreePath: thread.worktreePath,
+  }));
+  return cachedThreadGitTargetsResult;
 }
 
 // ── Zustand store ────────────────────────────────────────────────────

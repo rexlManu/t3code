@@ -79,6 +79,7 @@ export interface Project {
   name: string;
   cwd: string;
   model: string;
+  updatedAt: string;
   expanded: boolean;
   scripts: ProjectScript[];
 }
@@ -96,12 +97,14 @@ export interface Thread {
   proposedPlans: ProposedPlan[];
   error: string | null;
   createdAt: string;
+  updatedAt: string;
   latestTurn: OrchestrationLatestTurn | null;
   lastVisitedAt?: string | undefined;
   branch: string | null;
   worktreePath: string | null;
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
+  hasPendingApprovals: boolean;
 }
 
 export interface ThreadSession {
