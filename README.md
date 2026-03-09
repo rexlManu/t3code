@@ -2,6 +2,10 @@
 
 T3 Code is a minimal web GUI for coding agents. Currently Codex-first, with Claude Code support coming soon.
 
+### Caution
+
+This version of T3 Code is heavily modified.
+
 ## How to use
 
 > [!WARNING]
