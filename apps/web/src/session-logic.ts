@@ -492,6 +492,9 @@ function shouldHideWorkLogActivity(
   if (isInternalPlanToolActivity(payload)) {
     return true;
   }
+  if (activity.kind === "user-input.requested" || activity.kind === "user-input.resolved") {
+    return true;
+  }
   if (provider !== "opencode") {
     return false;
   }
