@@ -248,9 +248,15 @@ import { clamp } from "effect/Number";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
 import { estimateTimelineMessageHeight } from "./timelineHeight";
 
+function readableChatDuration(duration: string | null): string | null {
+  if (!duration || duration.endsWith("ms")) return null;
+  return duration;
+}
+
 function formatMessageMeta(createdAt: string, duration: string | null): string {
-  if (!duration) return formatTimestamp(createdAt);
-  return `${formatTimestamp(createdAt)} - ${duration}`;
+  const readableDuration = readableChatDuration(duration);
+  if (!readableDuration) return formatTimestamp(createdAt);
+  return `${formatTimestamp(createdAt)} - ${readableDuration}`;
 }
 
 function formatWorkingTimer(startIso: string, endIso: string): string | null {
@@ -1330,7 +1336,9 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
     if (!activeLatestTurn.completedAt) return null;
     if (!latestTurnHasToolActivity) return null;
 
-    const elapsed = formatElapsed(activeLatestTurn.startedAt, activeLatestTurn.completedAt);
+    const elapsed = readableChatDuration(
+      formatElapsed(activeLatestTurn.startedAt, activeLatestTurn.completedAt),
+    );
     return elapsed ? `Worked for ${elapsed}` : null;
   }, [
     activeLatestTurn?.completedAt,
