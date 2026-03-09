@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { TrimmedNonEmptyString } from "./baseSchemas";
 import { ProviderModelOptions } from "./model";
+import { ProviderStartOptions } from "./providerOptions";
 import {
   ApprovalRequestId,
   EventId,
@@ -47,49 +48,6 @@ export const ProviderSession = Schema.Struct({
   lastError: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type ProviderSession = typeof ProviderSession.Type;
-
-const CodexProviderStartOptions = Schema.Struct({
-  binaryPath: Schema.optional(TrimmedNonEmptyStringSchema),
-  homePath: Schema.optional(TrimmedNonEmptyStringSchema),
-});
-
-const OpencodeProviderStartOptions = Schema.Struct({
-  serverUrl: Schema.optional(TrimmedNonEmptyStringSchema),
-  binaryPath: Schema.optional(TrimmedNonEmptyStringSchema),
-  hostname: Schema.optional(TrimmedNonEmptyStringSchema),
-  port: Schema.optional(Schema.Number),
-  workspace: Schema.optional(TrimmedNonEmptyStringSchema),
-  username: Schema.optional(TrimmedNonEmptyStringSchema),
-  password: Schema.optional(TrimmedNonEmptyStringSchema),
-});
-
-const CopilotProviderStartOptions = Schema.Struct({
-  binaryPath: Schema.optional(TrimmedNonEmptyStringSchema),
-  configDir: Schema.optional(TrimmedNonEmptyStringSchema),
-});
-
-const ClaudeCodeProviderStartOptions = Schema.Struct({
-  binaryPath: Schema.optional(TrimmedNonEmptyStringSchema),
-  permissionMode: Schema.optional(TrimmedNonEmptyStringSchema),
-  maxThinkingTokens: Schema.optional(Schema.Int),
-});
-
-const CursorProviderStartOptions = Schema.Struct({
-  binaryPath: Schema.optional(TrimmedNonEmptyStringSchema),
-});
-
-const GeminiProviderStartOptions = Schema.Struct({
-  binaryPath: Schema.optional(TrimmedNonEmptyStringSchema),
-});
-
-const ProviderStartOptions = Schema.Struct({
-  codex: Schema.optional(CodexProviderStartOptions),
-  opencode: Schema.optional(OpencodeProviderStartOptions),
-  copilot: Schema.optional(CopilotProviderStartOptions),
-  claudeCode: Schema.optional(ClaudeCodeProviderStartOptions),
-  cursor: Schema.optional(CursorProviderStartOptions),
-  gemini: Schema.optional(GeminiProviderStartOptions),
-});
 
 export const ProviderSessionStartInput = Schema.Struct({
   threadId: ThreadId,

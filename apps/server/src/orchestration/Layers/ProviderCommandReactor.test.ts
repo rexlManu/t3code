@@ -344,6 +344,47 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("forwards codex provider options through session start", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-provider-options"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-provider-options"),
+          role: "user",
+          text: "hello desktop spoof",
+          attachments: [],
+        },
+        provider: "codex",
+        providerOptions: {
+          codex: {
+            binaryPath: "/usr/local/bin/codex",
+            homePath: "/tmp/.codex",
+            spoofAsCodexDesktop: true,
+          },
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
+      providerOptions: {
+        codex: {
+          binaryPath: "/usr/local/bin/codex",
+          homePath: "/tmp/.codex",
+          spoofAsCodexDesktop: true,
+        },
+      },
+    });
+  });
+
   it("forwards plan interaction mode to the provider turn request", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

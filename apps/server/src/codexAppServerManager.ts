@@ -164,6 +164,11 @@ const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS = [
 const CODEX_DEFAULT_MODEL = "gpt-5.3-codex";
 const CODEX_SPARK_MODEL = "gpt-5.3-codex-spark";
 const CODEX_SPARK_DISABLED_PLAN_TYPES = new Set<CodexPlanType>(["free", "go", "plus"]);
+const CODEX_DESKTOP_SERVICE_NAME = "codex_desktop";
+const CODEX_DESKTOP_SPOOF_VERSION = "26.305.950";
+const CODEX_DESKTOP_SPOOF_OPT_OUT_NOTIFICATION_METHODS = [
+  "codex/event/session_configured",
+] as const;
 
 function asObject(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object") {
@@ -401,7 +406,23 @@ export function normalizeCodexModelSlug(
   return normalized;
 }
 
-export function buildCodexInitializeParams() {
+export function buildCodexInitializeParams(input?: {
+  readonly spoofAsCodexDesktop?: boolean;
+}) {
+  if (input?.spoofAsCodexDesktop) {
+    return {
+      clientInfo: {
+        name: CODEX_DESKTOP_SERVICE_NAME,
+        title: "Codex Desktop",
+        version: CODEX_DESKTOP_SPOOF_VERSION,
+      },
+      capabilities: {
+        experimentalApi: true,
+        optOutNotificationMethods: [...CODEX_DESKTOP_SPOOF_OPT_OUT_NOTIFICATION_METHODS],
+      },
+    } as const;
+  }
+
   return {
     clientInfo: {
       name: "t3code_desktop",
@@ -543,6 +564,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const codexOptions = readCodexProviderOptions(input);
       const codexBinaryPath = codexOptions.binaryPath ?? "codex";
       const codexHomePath = codexOptions.homePath;
+      const spoofAsCodexDesktop = codexOptions.spoofAsCodexDesktop === true;
       this.assertSupportedCodexCliVersion({
         binaryPath: codexBinaryPath,
         cwd: resolvedCwd,
@@ -580,7 +602,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
       this.emitLifecycleEvent(context, "session/connecting", "Starting codex app-server");
 
-      await this.sendRequest(context, "initialize", buildCodexInitializeParams());
+      await this.sendRequest(
+        context,
+        "initialize",
+        buildCodexInitializeParams({ spoofAsCodexDesktop }),
+      );
 
       this.writeMessage(context, { method: "initialized" });
       try {
@@ -610,6 +636,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         model: normalizedModel ?? null,
         ...(input.serviceTier !== undefined ? { serviceTier: input.serviceTier } : {}),
         cwd: input.cwd ?? null,
+        ...(spoofAsCodexDesktop ? { serviceName: CODEX_DESKTOP_SERVICE_NAME } : {}),
         ...mapCodexRuntimeMode(input.runtimeMode ?? "full-access"),
       };
 
@@ -1510,6 +1537,7 @@ function normalizeProviderThreadId(value: string | undefined): string | undefine
 function readCodexProviderOptions(input: CodexAppServerStartSessionInput): {
   readonly binaryPath?: string;
   readonly homePath?: string;
+  readonly spoofAsCodexDesktop?: boolean;
 } {
   const options = input.providerOptions?.codex;
   if (!options) {
@@ -1518,6 +1546,7 @@ function readCodexProviderOptions(input: CodexAppServerStartSessionInput): {
   return {
     ...(options.binaryPath ? { binaryPath: options.binaryPath } : {}),
     ...(options.homePath ? { homePath: options.homePath } : {}),
+    ...(options.spoofAsCodexDesktop === true ? { spoofAsCodexDesktop: true } : {}),
   };
 }
 

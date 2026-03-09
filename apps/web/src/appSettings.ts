@@ -1,6 +1,10 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { Option, Schema } from "effect";
-import { type ProviderKind, type ProviderServiceTier } from "@t3tools/contracts";
+import {
+  type ProviderKind,
+  type ProviderServiceTier,
+  type ProviderStartOptions,
+} from "@t3tools/contracts";
 import { getDefaultModel, getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
 import { PROVIDER_ORDER } from "@t3tools/shared/provider";
 
@@ -43,6 +47,9 @@ const AppSettingsSchema = Schema.Struct({
   ),
   codexHomePath: Schema.String.check(Schema.isMaxLength(4096)).pipe(
     Schema.withConstructorDefault(() => Option.some("")),
+  ),
+  spoofT3CodeAsCodexDesktop: Schema.Boolean.pipe(
+    Schema.withConstructorDefault(() => Option.some(false)),
   ),
   confirmThreadDelete: Schema.Boolean.pipe(Schema.withConstructorDefault(() => Option.some(true))),
   enableAssistantStreaming: Schema.Boolean.pipe(
@@ -107,6 +114,29 @@ export function patchCustomModels(
 
 export function resolveAppServiceTier(serviceTier: AppServiceTier): ProviderServiceTier | null {
   return serviceTier === "auto" ? null : serviceTier;
+}
+
+export function resolveCodexProviderOptionsFromAppSettings(
+  settings: Pick<
+    AppSettings,
+    "codexBinaryPath" | "codexHomePath" | "spoofT3CodeAsCodexDesktop"
+  >,
+): ProviderStartOptions | undefined {
+  const binaryPath = settings.codexBinaryPath.trim();
+  const homePath = settings.codexHomePath.trim();
+  const spoofAsCodexDesktop = settings.spoofT3CodeAsCodexDesktop;
+
+  if (!binaryPath && !homePath && !spoofAsCodexDesktop) {
+    return undefined;
+  }
+
+  return {
+    codex: {
+      ...(binaryPath ? { binaryPath } : {}),
+      ...(homePath ? { homePath } : {}),
+      ...(spoofAsCodexDesktop ? { spoofAsCodexDesktop: true } : {}),
+    },
+  };
 }
 
 export function shouldShowFastTierIcon(
