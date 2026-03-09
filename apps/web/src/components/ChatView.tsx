@@ -285,10 +285,7 @@ function WorkingIndicatorRow(props: { createdAt: string | null; nowIso: string }
 
   return (
     <div aria-live="polite" className="py-0.5 pl-1.5" role="status">
-      <div className="inline-flex max-w-full items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-2.5 py-1 text-[11px] text-muted-foreground/70 backdrop-blur-xs">
-        <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary/80">
-          <BotIcon className="size-3" />
-        </span>
+      <div className="inline-flex max-w-full items-center gap-2 text-[11px] text-muted-foreground/70">
         <span aria-hidden="true" className="inline-flex items-center gap-[3px]">
           <span className="h-1 w-1 rounded-full bg-current/50 animate-pulse" />
           <span className="h-1 w-1 rounded-full bg-current/50 animate-pulse [animation-delay:200ms]" />
