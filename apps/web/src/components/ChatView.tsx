@@ -422,6 +422,7 @@ function buildLocalDraftThread(
     activities: [],
     proposedPlans: [],
     hasPendingApprovals: false,
+    hasPendingUserInput: false,
   };
 }
 

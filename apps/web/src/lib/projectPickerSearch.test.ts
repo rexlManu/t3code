@@ -42,6 +42,7 @@ function makeThread(input: { id: string; projectId: string; title: string; creat
     turnDiffSummaries: [],
     activities: [],
     hasPendingApprovals: false,
+    hasPendingUserInput: false,
   };
 }
 

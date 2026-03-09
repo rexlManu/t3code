@@ -16,7 +16,7 @@ import {
 import { PROVIDER_ORDER } from "@t3tools/shared/provider";
 import { create } from "zustand";
 import { type ChatMessage, type Project, type Thread } from "./types";
-import { derivePendingApprovals } from "./session-logic";
+import { derivePendingApprovals, derivePendingUserInputs } from "./session-logic";
 
 // ── State ────────────────────────────────────────────────────────────
 
@@ -32,10 +32,14 @@ export interface ThreadSidebarSummary {
   title: string;
   createdAt: string;
   updatedAt: string;
+  activities: Thread["activities"];
+  interactionMode: Thread["interactionMode"];
   latestTurn: Thread["latestTurn"];
   lastVisitedAt: Thread["lastVisitedAt"];
+  proposedPlans: Thread["proposedPlans"];
   session: Thread["session"];
   hasPendingApprovals: boolean;
+  hasPendingUserInput: boolean;
 }
 
 export interface ThreadGitTarget {
@@ -481,6 +485,7 @@ function normalizeThread(
     turnDiffSummaries,
     activities,
     hasPendingApprovals: derivePendingApprovals(activities).length > 0,
+    hasPendingUserInput: derivePendingUserInputs(activities).length > 0,
   };
   return reconcileValue(previous, normalizedThread);
 }
@@ -771,10 +776,14 @@ export function selectThreadSidebarSummaryById(
     title: thread.title,
     createdAt: thread.createdAt,
     updatedAt: thread.updatedAt,
+    activities: thread.activities,
+    interactionMode: thread.interactionMode,
     latestTurn: thread.latestTurn,
     lastVisitedAt: thread.lastVisitedAt,
+    proposedPlans: thread.proposedPlans,
     session: thread.session,
     hasPendingApprovals: thread.hasPendingApprovals,
+    hasPendingUserInput: thread.hasPendingUserInput,
   };
   cachedThreadSidebarSummaryById.set(thread.id, { thread, summary });
   return summary;

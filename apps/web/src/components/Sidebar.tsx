@@ -1425,6 +1425,10 @@ export default function Sidebar() {
                   : "hover:bg-accent/70 hover:text-foreground",
               )}
               onClick={() => {
+                if (isElectron) {
+                  void handlePickFolder();
+                  return;
+                }
                 setAddProjectDialogOpen(true);
               }}
             >
