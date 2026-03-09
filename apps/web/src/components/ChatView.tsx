@@ -118,6 +118,12 @@ import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import {
   summarizeTurnDiffStats,
 } from "../lib/turnDiffTree";
+import {
+  deriveWorkRowArtifacts,
+  resolveWorkArtifactVariant,
+  type RenderableWorkArtifact,
+  type WorkArtifactVariant,
+} from "../lib/workArtifactGrouping";
 import BranchToolbar from "./BranchToolbar";
 import GitActionsControl from "./GitActionsControl";
 import {
@@ -4648,33 +4654,8 @@ type ArtifactFileRow = {
   onClick?: (() => void) | undefined;
 };
 
-type WorkArtifactVariant =
-  | "command"
-  | "fileChanges"
-  | "mcp"
-  | "search"
-  | "tool"
-  | "agent"
-  | "work";
-
 const MAX_VISIBLE_ARTIFACT_FILE_ROWS = 4;
 const MAX_VISIBLE_COMMAND_GROUP_ROWS = 3;
-
-type RenderableWorkArtifact =
-  | { kind: "entry"; entry: WorkLogEntry }
-  | { kind: "command-group"; entries: WorkLogEntry[] }
-  | { kind: "path-tool-group"; entries: WorkLogEntry[] };
-
-function resolveWorkArtifactVariant(entry: WorkLogEntry): WorkArtifactVariant {
-  const itemType = entry.toolCall?.itemType;
-  if (entry.command || itemType === "command_execution") return "command";
-  if (itemType === "file_change" || (entry.changedFiles?.length ?? 0) > 0) return "fileChanges";
-  if (itemType === "mcp_tool_call") return "mcp";
-  if (itemType === "web_search") return "search";
-  if (itemType === "collab_agent_tool_call") return "agent";
-  if (itemType === "dynamic_tool_call") return "tool";
-  return "work";
-}
 
 function artifactSectionDefinition(variant: WorkArtifactVariant): {
   label: string;
@@ -4702,15 +4683,6 @@ function formatWorkEntryMeta(entry: WorkLogEntry): string {
   return formatTimestamp(entry.createdAt);
 }
 
-function isCompactPathToolEntry(entry: WorkLogEntry | null | undefined): boolean {
-  return entry?.toolCall?.compact === "path" && typeof entry.toolCall.targetPath === "string";
-}
-
-function compactPathToolGroupKey(entry: WorkLogEntry | null | undefined): string | null {
-  const name = entry?.toolCall?.name.trim().toLowerCase();
-  return name && isCompactPathToolEntry(entry) ? name : null;
-}
-
 function compactPathToolDefinition(entry: WorkLogEntry | null | undefined): {
   label: string;
   Icon: LucideIcon;
@@ -4731,43 +4703,6 @@ function artifactGroupKey(artifact: RenderableWorkArtifact): string {
     return `work-row:${artifact.entry.id}`;
   }
   return `${artifact.kind}:${artifact.entries.map((entry) => entry.id).join(":")}`;
-}
-
-function groupRenderableWorkArtifacts(entries: ReadonlyArray<WorkLogEntry>): RenderableWorkArtifact[] {
-  const grouped: RenderableWorkArtifact[] = [];
-
-  for (const entry of entries) {
-    const variant = resolveWorkArtifactVariant(entry);
-    const previous = grouped.at(-1);
-    if (variant === "command" && previous?.kind === "command-group") {
-      previous.entries.push(entry);
-      continue;
-    }
-
-    if (variant === "command") {
-      grouped.push({ kind: "command-group", entries: [entry] });
-      continue;
-    }
-
-    const pathToolGroupKey = compactPathToolGroupKey(entry);
-    if (
-      pathToolGroupKey &&
-      previous?.kind === "path-tool-group" &&
-      compactPathToolGroupKey(previous.entries[0] ?? null) === pathToolGroupKey
-    ) {
-      previous.entries.push(entry);
-      continue;
-    }
-
-    if (pathToolGroupKey) {
-      grouped.push({ kind: "path-tool-group", entries: [entry] });
-      continue;
-    }
-
-    grouped.push({ kind: "entry", entry });
-  }
-
-  return grouped;
 }
 
 const ArtifactSectionLabel = memo(function ArtifactSectionLabel(props: {
@@ -5512,13 +5447,11 @@ const MessagesTimeline = memo(function MessagesTimeline({
           const groupId = row.id;
           const groupedEntries = row.groupedEntries;
           const isExpanded = expandedWorkGroups[groupId] ?? false;
-          const hasOverflow = groupedEntries.length > MAX_VISIBLE_WORK_LOG_ENTRIES;
-          const visibleEntries =
-            hasOverflow && !isExpanded
-              ? groupedEntries.slice(-MAX_VISIBLE_WORK_LOG_ENTRIES)
-              : groupedEntries;
-          const hiddenCount = groupedEntries.length - visibleEntries.length;
-          const renderableArtifacts = groupRenderableWorkArtifacts(visibleEntries);
+          const { hiddenCount, renderableArtifacts, showOuterToggle } = deriveWorkRowArtifacts(
+            groupedEntries,
+            isExpanded,
+            MAX_VISIBLE_WORK_LOG_ENTRIES,
+          );
 
           return (
             <div className="px-1 py-0.5">
@@ -5533,7 +5466,7 @@ const MessagesTimeline = memo(function MessagesTimeline({
                   return <WorkEntryArtifacts key={artifactGroupKey(artifact)} entry={artifact.entry} />;
                 })}
               </div>
-              {hasOverflow && (
+              {showOuterToggle && (
                 <div className="mt-3 flex justify-center">
                   <button
                     type="button"
