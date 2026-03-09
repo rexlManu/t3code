@@ -35,6 +35,7 @@ import {
   memo,
   type ReactNode,
   useCallback,
+  useDeferredValue,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -94,7 +95,13 @@ import {
   setPendingUserInputCustomAnswer,
   type PendingUserInputDraftAnswer,
 } from "../pendingUserInput";
-import { useStore } from "../store";
+import {
+  selectProjectById,
+  selectProjectIdForThread,
+  selectThreadExists,
+  selectThreadById,
+  useStore,
+} from "../store";
 import {
   buildPlanImplementationThreadTitle,
   buildPlanImplementationPrompt,
@@ -675,8 +682,8 @@ interface ChatViewProps {
 }
 
 export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps) {
-  const threads = useStore((store) => store.threads);
-  const projects = useStore((store) => store.projects);
+  const serverThread = useStore((state) => selectThreadById(state, threadId));
+  const serverProjectId = useStore((state) => selectProjectIdForThread(state, threadId));
   const markThreadVisited = useStore((store) => store.markThreadVisited);
   const syncServerReadModel = useStore((store) => store.syncServerReadModel);
   const setStoreThreadError = useStore((store) => store.setError);
@@ -718,6 +725,7 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
   const draftThread = useComposerDraftStore(
     (store) => store.draftThreadsByThreadId[threadId] ?? null,
   );
+  const fallbackDraftProject = useStore((state) => selectProjectById(state, draftThread?.projectId ?? null));
   const promptRef = useRef(prompt);
   const [isDragOverComposer, setIsDragOverComposer] = useState(false);
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
@@ -820,8 +828,6 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
     [removeComposerDraftImage, threadId],
   );
 
-  const serverThread = threads.find((t) => t.id === threadId);
-  const fallbackDraftProject = projects.find((project) => project.id === draftThread?.projectId);
   const localDraftError = serverThread ? null : (localDraftErrorsByThreadId[threadId] ?? null);
   const localDraftThread = useMemo(
     () =>
@@ -836,6 +842,8 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
     [draftThread, fallbackDraftProject?.model, localDraftError, threadId],
   );
   const activeThread = serverThread ?? localDraftThread;
+  const activeProjectId = serverProjectId ?? activeThread?.projectId ?? null;
+  const activeProject = useStore((state) => selectProjectById(state, activeProjectId));
   const runtimeMode =
     composerDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const interactionMode =
@@ -850,7 +858,6 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
   const activeThreadId = activeThread?.id ?? null;
   const activeLatestTurn = activeThread?.latestTurn ?? null;
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
-  const activeProject = projects.find((p) => p.id === activeThread?.projectId);
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
 
   useEffect(() => {
@@ -986,27 +993,35 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
     activeThread?.session ?? null,
     sendStartedAt,
   );
-  const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
+  const deferredTimelineThread = useDeferredValue(activeThread);
+  const deferredTimelineProject = useDeferredValue(activeProject);
+  const deferredLatestTurn = deferredTimelineThread?.latestTurn ?? null;
+  const deferredThreadActivities = deferredTimelineThread?.activities ?? EMPTY_ACTIVITIES;
+  const liveThreadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = useMemo(
     () =>
       deriveWorkLogEntries(
-        threadActivities,
-        activeLatestTurn?.turnId ?? undefined,
-        activeThread?.session?.provider ?? null,
+        deferredThreadActivities,
+        deferredLatestTurn?.turnId ?? undefined,
+        deferredTimelineThread?.session?.provider ?? null,
       ),
-    [activeLatestTurn?.turnId, activeThread?.session?.provider, threadActivities],
+    [
+      deferredLatestTurn?.turnId,
+      deferredThreadActivities,
+      deferredTimelineThread?.session?.provider,
+    ],
   );
   const latestTurnHasToolActivity = useMemo(
-    () => hasToolActivityForTurn(threadActivities, activeLatestTurn?.turnId),
-    [activeLatestTurn?.turnId, threadActivities],
+    () => hasToolActivityForTurn(deferredThreadActivities, deferredLatestTurn?.turnId),
+    [deferredLatestTurn?.turnId, deferredThreadActivities],
   );
   const pendingApprovals = useMemo(
-    () => derivePendingApprovals(threadActivities),
-    [threadActivities],
+    () => derivePendingApprovals(liveThreadActivities),
+    [liveThreadActivities],
   );
   const pendingUserInputs = useMemo(
-    () => derivePendingUserInputs(threadActivities),
-    [threadActivities],
+    () => derivePendingUserInputs(liveThreadActivities),
+    [liveThreadActivities],
   );
   const activePendingUserInput = pendingUserInputs[0] ?? null;
   const activePendingDraftAnswers = useMemo(
@@ -1046,13 +1061,13 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
       return null;
     }
     return findLatestProposedPlan(
-      activeThread?.proposedPlans ?? [],
-      activeLatestTurn?.turnId ?? null,
+      deferredTimelineThread?.proposedPlans ?? [],
+      deferredLatestTurn?.turnId ?? null,
     );
-  }, [activeLatestTurn?.turnId, activeThread?.proposedPlans, latestTurnSettled]);
+  }, [deferredLatestTurn?.turnId, deferredTimelineThread?.proposedPlans, latestTurnSettled]);
   const activePlan = useMemo(
-    () => deriveActivePlanState(threadActivities, activeLatestTurn?.turnId ?? undefined),
-    [activeLatestTurn?.turnId, threadActivities],
+    () => deriveActivePlanState(deferredThreadActivities, deferredLatestTurn?.turnId ?? undefined),
+    [deferredLatestTurn?.turnId, deferredThreadActivities],
   );
   const showPlanFollowUpPrompt =
     pendingUserInputs.length === 0 &&
@@ -1145,7 +1160,7 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
       delete attachmentPreviewHandoffTimeoutByMessageIdRef.current[messageId];
     }, ATTACHMENT_PREVIEW_HANDOFF_TTL_MS);
   }, []);
-  const serverMessages = activeThread?.messages;
+  const serverMessages = deferredTimelineThread?.messages;
   const timelineMessages = useMemo(() => {
     const messages = serverMessages ?? [];
     const serverMessagesWithPreviewHandoff =
@@ -1201,11 +1216,11 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
   }, [serverMessages, attachmentPreviewHandoffByMessageId, optimisticUserMessages]);
   const timelineEntries = useMemo(
     () =>
-      deriveTimelineEntries(timelineMessages, activeThread?.proposedPlans ?? [], workLogEntries),
-    [activeThread?.proposedPlans, timelineMessages, workLogEntries],
+      deriveTimelineEntries(timelineMessages, deferredTimelineThread?.proposedPlans ?? [], workLogEntries),
+    [deferredTimelineThread?.proposedPlans, timelineMessages, workLogEntries],
   );
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
-    useTurnDiffSummaries(activeThread);
+    useTurnDiffSummaries(deferredTimelineThread);
   const turnDiffSummaryByAssistantMessageId = useMemo(() => {
     const byMessageId = new Map<MessageId, TurnDiffSummary>();
     for (const summary of turnDiffSummaries) {
@@ -1450,7 +1465,7 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
   const setThreadError = useCallback(
     (targetThreadId: ThreadId | null, error: string | null) => {
       if (!targetThreadId) return;
-      if (threads.some((thread) => thread.id === targetThreadId)) {
+      if (selectThreadExists(useStore.getState(), targetThreadId)) {
         setStoreThreadError(targetThreadId, error);
         return;
       }
@@ -1464,7 +1479,7 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
         };
       });
     },
-    [setStoreThreadError, threads],
+    [setStoreThreadError],
   );
 
   const focusComposer = useCallback(() => {
@@ -3584,7 +3599,7 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
             isRevertingCheckpoint={isRevertingCheckpoint}
             onImageExpand={onExpandTimelineImage}
             markdownCwd={gitCwd ?? undefined}
-            workspaceRoot={activeProject?.cwd ?? undefined}
+            workspaceRoot={deferredTimelineProject?.cwd ?? undefined}
           />
         </div>
       </div>

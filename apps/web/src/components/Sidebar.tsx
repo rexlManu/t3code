@@ -11,7 +11,7 @@ import {
   TerminalIcon,
   Trash2Icon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type MouseEvent, type MutableRefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_MODEL_BY_PROVIDER,
   type DesktopUpdateState,
@@ -26,7 +26,7 @@ import { useAppSettings } from "../appSettings";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL } from "../branding";
 import { cn, newCommandId, newProjectId } from "../lib/utils";
-import { useStore } from "../store";
+import { selectThreadById, useStore } from "../store";
 import { isChatNewLocalShortcut, isChatNewShortcut, shortcutLabelForCommand } from "../keybindings";
 import { derivePendingApprovals } from "../session-logic";
 import { gitRemoveWorktreeMutationOptions, gitStatusQueryOptions } from "../lib/gitReactQuery";
@@ -224,6 +224,167 @@ function T3Wordmark() {
   );
 }
 
+const SidebarThreadRow = memo(function SidebarThreadRow(props: {
+  threadId: ThreadId;
+  isActive: boolean;
+  isRenaming: boolean;
+  renamingTitle: string;
+  renamingInputRef: MutableRefObject<HTMLInputElement | null>;
+  renamingCommittedRef: MutableRefObject<boolean>;
+  setRenamingTitle: (value: string) => void;
+  commitRename: (threadId: ThreadId, nextTitle: string, previousTitle: string) => Promise<void>;
+  cancelRename: () => void;
+  openThreadContextMenu: (threadId: ThreadId, position: { x: number; y: number }) => void;
+  openPrLink: (event: MouseEvent<HTMLElement>, prUrl: string) => void;
+  handleOpenInSplitView: (threadId: ThreadId) => void;
+  navigateToSingleThread: (threadId: ThreadId) => void;
+  pr: ThreadPr;
+}) {
+  const thread = useStore((state) => selectThreadById(state, props.threadId));
+  const runningTerminalIds = useTerminalStateStore((state) =>
+    selectThreadTerminalState(state.terminalStateByThreadId, props.threadId).runningTerminalIds,
+  );
+
+  if (!thread) {
+    return null;
+  }
+
+  const threadStatus = getThreadStatusPill(
+    thread,
+    derivePendingApprovals(thread.activities).length > 0,
+  );
+  const prStatus = prStatusIndicator(props.pr);
+  const terminalStatus = getTerminalStatusIndicator(runningTerminalIds);
+
+  return (
+    <SidebarMenuSubItem className="w-full">
+      <SidebarMenuSubButton
+        render={<div role="button" tabIndex={0} />}
+        size="sm"
+        isActive={props.isActive}
+        className={`group/thread-row h-auto min-h-7 w-full translate-x-0 cursor-default justify-start rounded px-2 py-1.5 text-left transition-colors ${
+          props.isActive
+            ? "bg-accent/70 text-foreground font-medium"
+            : "text-muted-foreground/90 hover:bg-accent/55 hover:text-foreground"
+        }`}
+        onClick={() => {
+          props.navigateToSingleThread(thread.id);
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          props.navigateToSingleThread(thread.id);
+        }}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          props.openThreadContextMenu(thread.id, {
+            x: event.clientX,
+            y: event.clientY,
+          });
+        }}
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-2 text-left">
+          {prStatus ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label={prStatus.tooltip}
+                    className={`inline-flex items-center justify-center ${prStatus.colorClass} cursor-pointer rounded-sm outline-hidden focus-visible:ring-1 focus-visible:ring-ring`}
+                    onClick={(event) => {
+                      props.openPrLink(event, prStatus.url);
+                    }}
+                  >
+                    <GitPullRequestIcon className="size-3" />
+                  </button>
+                }
+              />
+              <TooltipPopup side="top">{prStatus.tooltip}</TooltipPopup>
+            </Tooltip>
+          ) : null}
+          {threadStatus ? (
+            <span className={`inline-flex items-center gap-1 text-[10px] ${threadStatus.colorClass}`}>
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${threadStatus.dotClass} ${
+                  threadStatus.pulse ? "animate-pulse" : ""
+                }`}
+              />
+              <span className="hidden md:inline">{threadStatus.label}</span>
+            </span>
+          ) : null}
+          {props.isRenaming ? (
+            <input
+              ref={(element) => {
+                if (element && props.renamingInputRef.current !== element) {
+                  props.renamingInputRef.current = element;
+                  element.focus();
+                  element.select();
+                }
+              }}
+              className="min-w-0 flex-1 truncate border border-ring bg-transparent px-0.5 text-xs outline-none"
+              value={props.renamingTitle}
+              onChange={(event) => props.setRenamingTitle(event.target.value)}
+              onKeyDown={(event) => {
+                event.stopPropagation();
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  props.renamingCommittedRef.current = true;
+                  void props.commitRename(thread.id, props.renamingTitle, thread.title);
+                } else if (event.key === "Escape") {
+                  event.preventDefault();
+                  props.renamingCommittedRef.current = true;
+                  props.cancelRename();
+                }
+              }}
+              onBlur={() => {
+                if (!props.renamingCommittedRef.current) {
+                  void props.commitRename(thread.id, props.renamingTitle, thread.title);
+                }
+              }}
+              onClick={(event) => event.stopPropagation()}
+            />
+          ) : (
+            <span className="min-w-0 flex-1 truncate text-xs">{thread.title}</span>
+          )}
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
+          {terminalStatus ? (
+            <span
+              role="img"
+              aria-label={terminalStatus.label}
+              title={terminalStatus.label}
+              className={`inline-flex items-center justify-center ${terminalStatus.colorClass}`}
+            >
+              <TerminalIcon className={`size-3 ${terminalStatus.pulse ? "animate-pulse" : ""}`} />
+            </span>
+          ) : null}
+          <button
+            type="button"
+            aria-label={`Open ${thread.title} in split view`}
+            title="Open in split view"
+            className="hidden size-4 items-center justify-center rounded text-muted-foreground/40 hover:bg-accent hover:text-muted-foreground group-hover/thread-row:inline-flex"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              props.handleOpenInSplitView(thread.id);
+            }}
+          >
+            <Columns2Icon className="size-3" />
+          </button>
+          <span
+            className={`text-[10px] ${
+              props.isActive ? "text-foreground/65" : "text-muted-foreground/40"
+            }`}
+          >
+            {formatRelativeTime(thread.createdAt)}
+          </span>
+        </div>
+      </SidebarMenuSubButton>
+    </SidebarMenuSubItem>
+  );
+});
+
 export default function Sidebar() {
   const projects = useStore((store) => store.projects);
   const threads = useStore((store) => store.threads);
@@ -234,7 +395,6 @@ export default function Sidebar() {
     (store) => store.getDraftThreadByProjectId,
   );
   const getDraftThread = useComposerDraftStore((store) => store.getDraftThread);
-  const terminalStateByThreadId = useTerminalStateStore((state) => state.terminalStateByThreadId);
   const clearTerminalState = useTerminalStateStore((state) => state.clearTerminalState);
   const clearProjectDraftThreadId = useComposerDraftStore(
     (store) => store.clearProjectDraftThreadId,
@@ -310,13 +470,6 @@ export default function Sidebar() {
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
-  const pendingApprovalByThreadId = useMemo(() => {
-    const map = new Map<ThreadId, boolean>();
-    for (const thread of threads) {
-      map.set(thread.id, derivePendingApprovals(thread.activities).length > 0);
-    }
-    return map;
-  }, [threads]);
   const projectCwdById = useMemo(
     () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
     [projects],
@@ -1198,152 +1351,25 @@ export default function Sidebar() {
 
                     <CollapsibleContent>
                       <SidebarMenuSub className="relative mx-0 my-1.5 w-full translate-x-0 gap-1 border-l-0 px-0 py-0 pl-7 before:absolute before:top-0 before:bottom-2 before:left-[1.125rem] before:w-px before:bg-border/60 before:content-['']">
-                        {visibleThreads.map((thread) => {
-                          const isActive = routeThreadId === thread.id;
-                          const threadStatus = getThreadStatusPill(
-                            thread,
-                            pendingApprovalByThreadId.get(thread.id) === true,
-                          );
-                          const prStatus = prStatusIndicator(prByThreadId.get(thread.id) ?? null);
-                          const terminalStatus = getTerminalStatusIndicator(
-                            selectThreadTerminalState(terminalStateByThreadId, thread.id)
-                              .runningTerminalIds,
-                          );
-
-                          return (
-                            <SidebarMenuSubItem key={thread.id} className="w-full">
-                              <SidebarMenuSubButton
-                                render={<div role="button" tabIndex={0} />}
-                                size="sm"
-                                isActive={isActive}
-                                className={`group/thread-row h-auto min-h-7 w-full translate-x-0 cursor-default justify-start rounded px-2 py-1.5 text-left transition-colors ${
-                                  isActive
-                                    ? "bg-accent/70 text-foreground font-medium"
-                                    : "text-muted-foreground/90 hover:bg-accent/55 hover:text-foreground"
-                                }`}
-                                onClick={() => {
-                                  navigateToSingleThread(thread.id);
-                                }}
-                                onKeyDown={(event) => {
-                                  if (event.key !== "Enter" && event.key !== " ") return;
-                                  event.preventDefault();
-                                  navigateToSingleThread(thread.id);
-                                }}
-                                onContextMenu={(event) => {
-                                  event.preventDefault();
-                                  openThreadContextMenu(thread.id, {
-                                    x: event.clientX,
-                                    y: event.clientY,
-                                  });
-                                }}
-                              >
-                                <div className="flex min-w-0 flex-1 items-center gap-2 text-left">
-                                  {prStatus && (
-                                    <Tooltip>
-                                      <TooltipTrigger
-                                        render={
-                                          <button
-                                            type="button"
-                                            aria-label={prStatus.tooltip}
-                                            className={`inline-flex items-center justify-center ${prStatus.colorClass} cursor-pointer rounded-sm outline-hidden focus-visible:ring-1 focus-visible:ring-ring`}
-                                            onClick={(event) => {
-                                              openPrLink(event, prStatus.url);
-                                            }}
-                                          >
-                                            <GitPullRequestIcon className="size-3" />
-                                          </button>
-                                        }
-                                      />
-                                      <TooltipPopup side="top">{prStatus.tooltip}</TooltipPopup>
-                                    </Tooltip>
-                                  )}
-                                  {threadStatus && (
-                                    <span
-                                      className={`inline-flex items-center gap-1 text-[10px] ${threadStatus.colorClass}`}
-                                    >
-                                      <span
-                                        className={`h-1.5 w-1.5 rounded-full ${threadStatus.dotClass} ${
-                                          threadStatus.pulse ? "animate-pulse" : ""
-                                        }`}
-                                      />
-                                      <span className="hidden md:inline">{threadStatus.label}</span>
-                                    </span>
-                                  )}
-                                  {renamingThreadId === thread.id ? (
-                                    <input
-                                      ref={(el) => {
-                                        if (el && renamingInputRef.current !== el) {
-                                          renamingInputRef.current = el;
-                                          el.focus();
-                                          el.select();
-                                        }
-                                      }}
-                                      className="min-w-0 flex-1 truncate text-xs bg-transparent outline-none border border-ring rounded px-0.5"
-                                      value={renamingTitle}
-                                      onChange={(e) => setRenamingTitle(e.target.value)}
-                                      onKeyDown={(e) => {
-                                        e.stopPropagation();
-                                        if (e.key === "Enter") {
-                                          e.preventDefault();
-                                          renamingCommittedRef.current = true;
-                                          void commitRename(thread.id, renamingTitle, thread.title);
-                                        } else if (e.key === "Escape") {
-                                          e.preventDefault();
-                                          renamingCommittedRef.current = true;
-                                          cancelRename();
-                                        }
-                                      }}
-                                      onBlur={() => {
-                                        if (!renamingCommittedRef.current) {
-                                          void commitRename(thread.id, renamingTitle, thread.title);
-                                        }
-                                      }}
-                                      onClick={(e) => e.stopPropagation()}
-                                    />
-                                  ) : (
-                                    <span className="min-w-0 flex-1 truncate text-xs">
-                                      {thread.title}
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
-                                  {terminalStatus && (
-                                    <span
-                                      role="img"
-                                      aria-label={terminalStatus.label}
-                                      title={terminalStatus.label}
-                                      className={`inline-flex items-center justify-center ${terminalStatus.colorClass}`}
-                                    >
-                                      <TerminalIcon
-                                        className={`size-3 ${terminalStatus.pulse ? "animate-pulse" : ""}`}
-                                      />
-                                    </span>
-                                  )}
-                                  <button
-                                    type="button"
-                                    aria-label={`Open ${thread.title} in split view`}
-                                    title="Open in split view"
-                                    className="hidden size-4 items-center justify-center rounded text-muted-foreground/40 hover:bg-accent hover:text-muted-foreground group-hover/thread-row:inline-flex"
-                                    onClick={(event) => {
-                                      event.preventDefault();
-                                      event.stopPropagation();
-                                      handleOpenInSplitView(thread.id);
-                                    }}
-                                  >
-                                    <Columns2Icon className="size-3" />
-                                  </button>
-                                  <span
-                                    className={`text-[10px] ${
-                                      isActive ? "text-foreground/65" : "text-muted-foreground/40"
-                                    }`}
-                                  >
-                                    {formatRelativeTime(thread.createdAt)}
-                                  </span>
-                                </div>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          );
-                        })}
+                        {visibleThreads.map((thread) => (
+                          <SidebarThreadRow
+                            key={thread.id}
+                            threadId={thread.id}
+                            isActive={routeThreadId === thread.id}
+                            isRenaming={renamingThreadId === thread.id}
+                            renamingTitle={renamingTitle}
+                            renamingInputRef={renamingInputRef}
+                            renamingCommittedRef={renamingCommittedRef}
+                            setRenamingTitle={setRenamingTitle}
+                            commitRename={commitRename}
+                            cancelRename={cancelRename}
+                            openThreadContextMenu={openThreadContextMenu}
+                            openPrLink={openPrLink}
+                            handleOpenInSplitView={handleOpenInSplitView}
+                            navigateToSingleThread={navigateToSingleThread}
+                            pr={prByThreadId.get(thread.id) ?? null}
+                          />
+                        ))}
 
                         {hasHiddenThreads && !isThreadListExpanded && (
                           <SidebarMenuSubItem className="w-full">

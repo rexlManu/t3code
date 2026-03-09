@@ -2,12 +2,15 @@
 import "../index.css";
 
 import {
+  ORCHESTRATION_WS_CHANNELS,
   ORCHESTRATION_WS_METHODS,
   type MessageId,
+  type OrchestrationEvent,
   type OrchestrationReadModel,
   type ProjectId,
   type ServerConfig,
   type ThreadId,
+  type TurnId,
   type WsWelcomePayload,
   WS_CHANNELS,
   WS_METHODS,
@@ -47,6 +50,7 @@ interface TestFixture {
 let fixture: TestFixture;
 const wsRequests: WsRequestEnvelope["body"][] = [];
 const wsLink = ws.link(/ws(s)?:\/\/.*/);
+const connectedWsClients = new Set<{ send: (data: string) => void }>();
 
 interface ViewportSpec {
   name: string;
@@ -256,6 +260,130 @@ function createDraftOnlySnapshot(): OrchestrationReadModel {
   };
 }
 
+function createStreamingSnapshot(): OrchestrationReadModel {
+  const turnId = "turn-streaming" as TurnId;
+  return {
+    snapshotSequence: 1,
+    projects: [
+      {
+        id: PROJECT_ID,
+        title: "Project",
+        workspaceRoot: "/repo/project",
+        defaultModel: "gpt-5",
+        scripts: [],
+        createdAt: NOW_ISO,
+        updatedAt: NOW_ISO,
+        deletedAt: null,
+      },
+    ],
+    threads: [
+      {
+        id: THREAD_ID,
+        projectId: PROJECT_ID,
+        title: "Streaming thread",
+        model: "gpt-5",
+        interactionMode: "default",
+        runtimeMode: "full-access",
+        branch: "main",
+        worktreePath: null,
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: NOW_ISO,
+          startedAt: NOW_ISO,
+          completedAt: null,
+          assistantMessageId: "assistant-stream" as MessageId,
+        },
+        createdAt: NOW_ISO,
+        updatedAt: NOW_ISO,
+        deletedAt: null,
+        messages: [
+          createUserMessage({
+            id: "msg-user-stream" as MessageId,
+            text: "Do the thing",
+            offsetSeconds: 0,
+          }),
+          {
+            id: "assistant-stream" as MessageId,
+            role: "assistant" as const,
+            text: "",
+            turnId,
+            streaming: true,
+            createdAt: NOW_ISO,
+            updatedAt: NOW_ISO,
+          },
+        ],
+        activities: [],
+        proposedPlans: [],
+        checkpoints: [],
+        session: {
+          threadId: THREAD_ID,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: turnId,
+          lastError: null,
+          updatedAt: NOW_ISO,
+        },
+      },
+    ],
+    updatedAt: NOW_ISO,
+  };
+}
+
+function createTwoThreadStreamingSnapshot(): OrchestrationReadModel {
+  const secondaryThreadId = "thread-secondary" as ThreadId;
+  const turnId = "turn-streaming" as TurnId;
+  return {
+    ...createStreamingSnapshot(),
+    threads: [
+      createStreamingSnapshot().threads[0]!,
+      {
+        id: secondaryThreadId,
+        projectId: PROJECT_ID,
+        title: "Secondary thread",
+        model: "gpt-5",
+        interactionMode: "default",
+        runtimeMode: "full-access",
+        branch: "main",
+        worktreePath: null,
+        latestTurn: null,
+        createdAt: isoAt(10),
+        updatedAt: isoAt(10),
+        deletedAt: null,
+        messages: [
+          createUserMessage({
+            id: "msg-user-secondary" as MessageId,
+            text: "Second thread message",
+            offsetSeconds: 10,
+          }),
+          {
+            id: "assistant-secondary" as MessageId,
+            role: "assistant" as const,
+            text: "Secondary response",
+            turnId: turnId,
+            streaming: false,
+            createdAt: isoAt(11),
+            updatedAt: isoAt(12),
+          },
+        ],
+        activities: [],
+        proposedPlans: [],
+        checkpoints: [],
+        session: {
+          threadId: secondaryThreadId,
+          status: "ready",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: isoAt(12),
+        },
+      },
+    ],
+  };
+}
+
 function resolveWsRpc(tag: string): unknown {
   if (tag === ORCHESTRATION_WS_METHODS.getSnapshot) {
     return fixture.snapshot;
@@ -302,6 +430,7 @@ function resolveWsRpc(tag: string): unknown {
 
 const worker = setupWorker(
   wsLink.addEventListener("connection", ({ client }) => {
+    connectedWsClients.add(client);
     client.send(
       JSON.stringify({
         type: "push",
@@ -328,6 +457,9 @@ const worker = setupWorker(
         }),
       );
     });
+    client.addEventListener("close", () => {
+      connectedWsClients.delete(client);
+    });
   }),
   http.get("*/attachments/:attachmentId", () =>
     HttpResponse.text(ATTACHMENT_SVG, {
@@ -339,6 +471,66 @@ const worker = setupWorker(
   http.get("*/api/project-favicon", () => new HttpResponse(null, { status: 204 })),
 );
 
+function nextSequence(): number {
+  return fixture.snapshot.snapshotSequence + 1;
+}
+
+function pushDomainEvent(event: OrchestrationEvent): void {
+  for (const client of connectedWsClients) {
+    client.send(
+      JSON.stringify({
+        type: "push",
+        channel: ORCHESTRATION_WS_CHANNELS.domainEvent,
+        data: event,
+      }),
+    );
+  }
+}
+
+function updateFixtureSnapshot(
+  updater: (snapshot: OrchestrationReadModel, sequence: number) => OrchestrationReadModel,
+): number {
+  const sequence = nextSequence();
+  fixture = {
+    ...fixture,
+    snapshot: updater(fixture.snapshot, sequence),
+  };
+  return sequence;
+}
+
+function makeThreadMessageSentEvent(input: {
+  sequence: number;
+  threadId: ThreadId;
+  turnId: TurnId;
+  messageId: MessageId;
+  text: string;
+  streaming: boolean;
+  occurredAt: string;
+}): OrchestrationEvent {
+  return {
+    sequence: input.sequence,
+    eventId: `event-${input.sequence}` as OrchestrationEvent["eventId"],
+    type: "thread.message-sent",
+    aggregateKind: "thread",
+    aggregateId: input.threadId,
+    occurredAt: input.occurredAt,
+    commandId: `cmd-${input.sequence}` as OrchestrationEvent["commandId"],
+    causationEventId: null,
+    correlationId: `cmd-${input.sequence}` as OrchestrationEvent["correlationId"],
+    metadata: {},
+    payload: {
+      threadId: input.threadId,
+      messageId: input.messageId,
+      role: "assistant",
+      text: input.text,
+      turnId: input.turnId,
+      streaming: input.streaming,
+      createdAt: input.occurredAt,
+      updatedAt: input.occurredAt,
+    },
+  };
+}
+
 async function nextFrame(): Promise<void> {
   await new Promise<void>((resolve) => {
     window.requestAnimationFrame(() => resolve());
@@ -349,6 +541,12 @@ async function waitForLayout(): Promise<void> {
   await nextFrame();
   await nextFrame();
   await nextFrame();
+}
+
+async function waitForDeferredTimeline(): Promise<void> {
+  await waitForLayout();
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  await waitForLayout();
 }
 
 async function setViewport(viewport: ViewportSpec): Promise<void> {
@@ -397,6 +595,17 @@ async function waitForComposerEditor(): Promise<HTMLElement> {
     () => document.querySelector<HTMLElement>('[contenteditable="true"]'),
     "Unable to find composer editor.",
   );
+}
+
+async function typeInComposer(editor: HTMLElement, text: string, delayMs = 0): Promise<void> {
+  editor.focus();
+  for (const character of text) {
+    document.execCommand("insertText", false, character);
+    if (delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  await waitForLayout();
 }
 
 async function waitForInteractionModeButton(expectedLabel: "Chat" | "Plan"): Promise<HTMLButtonElement> {
@@ -523,7 +732,7 @@ async function mountChatView(options: {
     container: host,
   });
 
-  await waitForLayout();
+  await waitForDeferredTimeline();
 
   return {
     cleanup: async () => {
@@ -534,6 +743,7 @@ async function mountChatView(options: {
     setViewport: async (viewport: ViewportSpec) => {
       await setViewport(viewport);
       await waitForProductionStyles();
+      await waitForDeferredTimeline();
     },
   };
 }
@@ -581,6 +791,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     localStorage.clear();
     document.body.innerHTML = "";
     wsRequests.length = 0;
+    connectedWsClients.clear();
     useComposerDraftStore.setState({
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
@@ -923,6 +1134,171 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
     } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps the composer focused and preserves typed text while streaming snapshot updates arrive", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createStreamingSnapshot(),
+    });
+
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    try {
+      const composerEditor = await waitForComposerEditor();
+      composerEditor.focus();
+
+      let chunkIndex = 0;
+      intervalId = setInterval(() => {
+        chunkIndex += 1;
+        const occurredAt = isoAt(30 + chunkIndex);
+        const sequence = updateFixtureSnapshot((snapshot, nextSequenceValue) => ({
+          ...snapshot,
+          snapshotSequence: nextSequenceValue,
+          updatedAt: occurredAt,
+          threads: snapshot.threads.map((thread) => {
+            if (thread.id !== THREAD_ID) {
+              return thread;
+            }
+            return {
+              ...thread,
+              updatedAt: occurredAt,
+              messages: thread.messages.map((message) =>
+                message.id === ("assistant-stream" as MessageId)
+                  ? {
+                      ...message,
+                      text: `chunk ${chunkIndex}`,
+                      streaming: true,
+                      updatedAt: occurredAt,
+                    }
+                  : message,
+              ),
+              session: thread.session
+                ? {
+                    ...thread.session,
+                    status: "running",
+                    activeTurnId: "turn-streaming" as TurnId,
+                    updatedAt: occurredAt,
+                  }
+                : thread.session,
+            };
+          }),
+        }));
+        pushDomainEvent(
+          makeThreadMessageSentEvent({
+            sequence,
+            threadId: THREAD_ID,
+            turnId: "turn-streaming" as TurnId,
+            messageId: "assistant-stream" as MessageId,
+            text: `chunk ${chunkIndex}`,
+            streaming: true,
+            occurredAt,
+          }),
+        );
+      }, 25);
+
+      await typeInComposer(composerEditor, "typing under load", 18);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await waitForLayout();
+
+      expect(document.activeElement).toBe(composerEditor);
+      expect(composerEditor.textContent).toBe("typing under load");
+      const selection = window.getSelection();
+      expect(selection?.focusNode ? composerEditor.contains(selection.focusNode) : false).toBe(true);
+    } finally {
+      if (intervalId !== null) {
+        clearInterval(intervalId);
+      }
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps thread switching responsive while another thread continues streaming", async () => {
+    const snapshot = createTwoThreadStreamingSnapshot();
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
+
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    try {
+      intervalId = setInterval(() => {
+        const occurredAt = isoAt(60 + Math.floor(Math.random() * 20));
+        const sequence = updateFixtureSnapshot((currentSnapshot, nextSequenceValue) => ({
+          ...currentSnapshot,
+          snapshotSequence: nextSequenceValue,
+          updatedAt: occurredAt,
+          threads: currentSnapshot.threads.map((thread) => {
+            if (thread.id !== THREAD_ID) {
+              return thread;
+            }
+            return {
+              ...thread,
+              updatedAt: occurredAt,
+              messages: thread.messages.map((message) =>
+                message.id === ("assistant-stream" as MessageId)
+                  ? {
+                      ...message,
+                      text: `live ${nextSequenceValue}`,
+                      streaming: true,
+                      updatedAt: occurredAt,
+                    }
+                  : message,
+              ),
+              session: thread.session
+                ? {
+                    ...thread.session,
+                    status: "running",
+                    activeTurnId: "turn-streaming" as TurnId,
+                    updatedAt: occurredAt,
+                  }
+                : thread.session,
+            };
+          }),
+        }));
+        pushDomainEvent(
+          makeThreadMessageSentEvent({
+            sequence,
+            threadId: THREAD_ID,
+            turnId: "turn-streaming" as TurnId,
+            messageId: "assistant-stream" as MessageId,
+            text: `live ${sequence}`,
+            streaming: true,
+            occurredAt,
+          }),
+        );
+      }, 30);
+
+      const secondaryThreadButton = await waitForElement(
+        () =>
+          (Array.from(document.querySelectorAll<HTMLElement>('[role="button"]')).find((element) =>
+            element.textContent?.includes("Secondary thread"),
+          ) ?? null),
+        "Unable to find Secondary thread button.",
+      );
+      secondaryThreadButton.click();
+
+      await vi.waitFor(
+        () => {
+          expect(document.body.textContent).toContain("Secondary response");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const composerEditor = await waitForComposerEditor();
+      await typeInComposer(composerEditor, "switched thread", 18);
+      await waitForLayout();
+
+      expect(document.activeElement).toBe(composerEditor);
+      expect(composerEditor.textContent).toBe("switched thread");
+    } finally {
+      if (intervalId !== null) {
+        clearInterval(intervalId);
+      }
       await mounted.cleanup();
     }
   });
