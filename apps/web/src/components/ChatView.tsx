@@ -230,6 +230,7 @@ import { readNativeApi } from "~/nativeApi";
 import {
   getAppModelOptions,
   getCustomModelsForProvider as getAppSettingsCustomModelsForProvider,
+  resolveCodexProviderOptionsFromAppSettings,
   resolveAppModelSelection,
   resolveAppServiceTier,
   shouldShowFastTierIcon,
@@ -1563,6 +1564,13 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
   const selectedEffort = composerDraft.effort ?? getDefaultReasoningEffort(selectedProvider);
   const selectedCodexFastModeEnabled =
     selectedProvider === "codex" ? composerDraft.codexFastMode : false;
+  const selectedProviderOptionsForDispatch = useMemo(() => {
+    if (selectedProvider !== "codex") {
+      return undefined;
+    }
+
+    return resolveCodexProviderOptionsFromAppSettings(settings);
+  }, [selectedProvider, settings]);
   const selectedModelOptionsForDispatch = useMemo(() => {
     if (selectedProvider === "codex") {
       const codexOptions = {
@@ -3249,6 +3257,9 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
           ...(selectedModelOptionsForDispatch
             ? { modelOptions: selectedModelOptionsForDispatch }
             : {}),
+          ...(selectedProviderOptionsForDispatch
+            ? { providerOptions: selectedProviderOptionsForDispatch }
+            : {}),
           assistantDeliveryMode: settings.enableAssistantStreaming ? "streaming" : "buffered",
           runtimeMode,
           interactionMode: nextInteractionMode,
@@ -3279,6 +3290,7 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
       runtimeMode,
       selectedModel,
       selectedModelOptionsForDispatch,
+      selectedProviderOptionsForDispatch,
       selectedProvider,
       setComposerDraftInteractionMode,
       setThreadError,
@@ -3510,6 +3522,9 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
           ...(selectedModelOptionsForDispatch
             ? { modelOptions: selectedModelOptionsForDispatch }
             : {}),
+          ...(selectedProviderOptionsForDispatch
+            ? { providerOptions: selectedProviderOptionsForDispatch }
+            : {}),
           provider: selectedProvider,
           assistantDeliveryMode: settings.enableAssistantStreaming ? "streaming" : "buffered",
           runtimeMode,
@@ -3581,6 +3596,7 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
       runtimeMode,
       selectedModel,
       selectedModelOptionsForDispatch,
+      selectedProviderOptionsForDispatch,
       selectedProvider,
       selectedServiceTier,
       setComposerHighlightedItemId,
@@ -3762,6 +3778,9 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
           ...(selectedModelOptionsForDispatch
             ? { modelOptions: selectedModelOptionsForDispatch }
             : {}),
+          ...(selectedProviderOptionsForDispatch
+            ? { providerOptions: selectedProviderOptionsForDispatch }
+            : {}),
           assistantDeliveryMode: settings.enableAssistantStreaming ? "streaming" : "buffered",
           runtimeMode,
           interactionMode: "default",
@@ -3811,6 +3830,7 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
     runtimeMode,
     selectedModel,
     selectedModelOptionsForDispatch,
+    selectedProviderOptionsForDispatch,
     selectedProvider,
     settings.enableAssistantStreaming,
     syncServerReadModel,

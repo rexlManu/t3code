@@ -94,6 +94,7 @@ function SettingsRouteView() {
 
   const codexBinaryPath = settings.codexBinaryPath;
   const codexHomePath = settings.codexHomePath;
+  const spoofT3CodeAsCodexDesktop = settings.spoofT3CodeAsCodexDesktop;
   const codexServiceTier = settings.codexServiceTier;
   const keybindingsConfigPath = serverConfigQuery.data?.keybindingsConfigPath ?? null;
 
@@ -262,6 +263,27 @@ function SettingsRouteView() {
                   </span>
                 </label>
 
+                <div className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">
+                      Spoof Codex Desktop client
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Uses Codex Desktop client metadata and the `codex_desktop` service name for
+                      new Codex sessions.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={spoofT3CodeAsCodexDesktop}
+                    onCheckedChange={(checked) =>
+                      updateSettings({
+                        spoofT3CodeAsCodexDesktop: Boolean(checked),
+                      })
+                    }
+                    aria-label="Spoof Codex Desktop client"
+                  />
+                </div>
+
                 <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
                   <p>
                     Binary source:{" "}
@@ -274,6 +296,7 @@ function SettingsRouteView() {
                       updateSettings({
                         codexBinaryPath: defaults.codexBinaryPath,
                         codexHomePath: defaults.codexHomePath,
+                        spoofT3CodeAsCodexDesktop: defaults.spoofT3CodeAsCodexDesktop,
                       })
                     }
                   >

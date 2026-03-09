@@ -186,6 +186,34 @@ it.effect("accepts provider-scoped model options in thread.turn.start", () =>
   }),
 );
 
+it.effect("accepts provider-scoped start options in thread.turn.start", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeThreadTurnStartCommand({
+      type: "thread.turn.start",
+      commandId: "cmd-turn-provider-options",
+      threadId: "thread-1",
+      message: {
+        messageId: "msg-provider-options",
+        role: "user",
+        text: "hello",
+        attachments: [],
+      },
+      provider: "codex",
+      providerOptions: {
+        codex: {
+          binaryPath: "/usr/local/bin/codex",
+          homePath: "/tmp/.codex",
+          spoofAsCodexDesktop: true,
+        },
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(parsed.providerOptions?.codex?.binaryPath, "/usr/local/bin/codex");
+    assert.strictEqual(parsed.providerOptions?.codex?.homePath, "/tmp/.codex");
+    assert.strictEqual(parsed.providerOptions?.codex?.spoofAsCodexDesktop, true);
+  }),
+);
+
 it.effect("accepts opencode reasoning effort options in thread.turn.start", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeThreadTurnStartCommand({

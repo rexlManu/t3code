@@ -4,6 +4,7 @@ import {
   getAppModelOptions,
   getSlashModelOptions,
   normalizeCustomModelSlugs,
+  resolveCodexProviderOptionsFromAppSettings,
   resolveAppServiceTier,
   shouldShowFastTierIcon,
   resolveAppModelSelection,
@@ -93,6 +94,34 @@ describe("resolveAppServiceTier", () => {
   it("preserves explicit service tier overrides", () => {
     expect(resolveAppServiceTier("fast")).toBe("fast");
     expect(resolveAppServiceTier("flex")).toBe("flex");
+  });
+});
+
+describe("resolveCodexProviderOptionsFromAppSettings", () => {
+  it("omits codex provider options when no overrides are enabled", () => {
+    expect(
+      resolveCodexProviderOptionsFromAppSettings({
+        codexBinaryPath: "",
+        codexHomePath: " ",
+        spoofT3CodeAsCodexDesktop: false,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("collects codex path overrides and spoofing into provider options", () => {
+    expect(
+      resolveCodexProviderOptionsFromAppSettings({
+        codexBinaryPath: " /usr/local/bin/codex ",
+        codexHomePath: " /tmp/.codex ",
+        spoofT3CodeAsCodexDesktop: true,
+      }),
+    ).toEqual({
+      codex: {
+        binaryPath: "/usr/local/bin/codex",
+        homePath: "/tmp/.codex",
+        spoofAsCodexDesktop: true,
+      },
+    });
   });
 });
 

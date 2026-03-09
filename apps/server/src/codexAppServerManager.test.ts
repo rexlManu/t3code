@@ -283,6 +283,20 @@ describe("startSession", () => {
     });
   });
 
+  it("spoofs Codex Desktop initialize metadata when requested", () => {
+    expect(buildCodexInitializeParams({ spoofAsCodexDesktop: true })).toEqual({
+      clientInfo: {
+        name: "codex_desktop",
+        title: "Codex Desktop",
+        version: "26.305.950",
+      },
+      capabilities: {
+        experimentalApi: true,
+        optOutNotificationMethods: ["codex/event/session_configured"],
+      },
+    });
+  });
+
   it("emits session/startFailed when resolving cwd throws before process launch", async () => {
     const manager = new CodexAppServerManager();
     const events: Array<{ method: string; kind: string; message?: string }> = [];

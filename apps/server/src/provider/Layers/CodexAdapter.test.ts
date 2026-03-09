@@ -182,6 +182,39 @@ validationLayer("CodexAdapterLive validation", (it) => {
       });
     }),
   );
+
+  it.effect("passes codex provider options through session start", () =>
+    Effect.gen(function* () {
+      validationManager.startSessionImpl.mockClear();
+      const adapter = yield* CodexAdapter;
+
+      yield* adapter.startSession({
+        provider: "codex",
+        threadId: asThreadId("thread-1"),
+        runtimeMode: "full-access",
+        providerOptions: {
+          codex: {
+            binaryPath: "/usr/local/bin/codex",
+            homePath: "/tmp/.codex",
+            spoofAsCodexDesktop: true,
+          },
+        },
+      });
+
+      assert.deepStrictEqual(validationManager.startSessionImpl.mock.calls[0]?.[0], {
+        provider: "codex",
+        threadId: asThreadId("thread-1"),
+        providerOptions: {
+          codex: {
+            binaryPath: "/usr/local/bin/codex",
+            homePath: "/tmp/.codex",
+            spoofAsCodexDesktop: true,
+          },
+        },
+        runtimeMode: "full-access",
+      });
+    }),
+  );
 });
 
 const sessionErrorManager = new FakeCodexManager();
