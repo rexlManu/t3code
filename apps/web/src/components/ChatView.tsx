@@ -4446,7 +4446,7 @@ const PlanModePanel = memo(function PlanModePanel({ activePlan }: PlanModePanelP
         >
           <div className="flex shrink-0 items-center gap-3">
             <ListTodoIcon className="size-4 text-muted-foreground" />
-            <span className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+            <span className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
               Plan
             </span>
           </div>
@@ -4689,7 +4689,7 @@ const ArtifactSectionLabel = memo(function ArtifactSectionLabel(props: {
   return (
     <div className="flex items-center gap-3">
       <Icon className="size-4 text-muted-foreground" />
-      <span className="font-mono text-xs tracking-widest text-muted-foreground uppercase">
+      <span className="font-mono text-xs tracking-wide text-muted-foreground uppercase">
         {label}
       </span>
     </div>
@@ -4910,7 +4910,7 @@ const WorkEntryArtifacts = memo(function WorkEntryArtifacts(props: { entry: Work
           ) : null}
           {entry.toolCall.input ? (
             <div className="border-t border-foreground/5 pt-3">
-              <p className="mb-1 font-mono text-[11px] uppercase tracking-widest text-muted-foreground/70">
+              <p className="mb-1 font-mono text-[11px] uppercase tracking-wide text-muted-foreground/70">
                 Input
               </p>
               <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/72">
@@ -4920,7 +4920,7 @@ const WorkEntryArtifacts = memo(function WorkEntryArtifacts(props: { entry: Work
           ) : null}
           {entry.toolCall.output ? (
             <div className="border-t border-foreground/5 pt-3">
-              <p className="mb-1 font-mono text-[11px] uppercase tracking-widest text-muted-foreground/70">
+              <p className="mb-1 font-mono text-[11px] uppercase tracking-wide text-muted-foreground/70">
                 Output
               </p>
               <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-muted-foreground/85">
