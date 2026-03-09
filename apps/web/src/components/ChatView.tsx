@@ -3148,6 +3148,117 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
     [activeThread, isConnecting, isRevertingCheckpoint, isSendBusy, phase, setThreadError],
   );
 
+  const onSubmitPlanFollowUp = useCallback(
+    async ({
+      text,
+      interactionMode: nextInteractionMode,
+    }: {
+      text: string;
+      interactionMode: "default" | "plan";
+    }) => {
+      const api = readNativeApi();
+      if (
+        !api ||
+        !activeThread ||
+        !isServerThread ||
+        isSendBusy ||
+        isConnecting ||
+        sendInFlightRef.current
+      ) {
+        return;
+      }
+
+      const trimmed = text.trim();
+      if (!trimmed) {
+        return;
+      }
+
+      const threadIdForSend = activeThread.id;
+      const messageIdForSend = newMessageId();
+      const messageCreatedAt = new Date().toISOString();
+
+      sendInFlightRef.current = true;
+      beginSendPhase("sending-turn");
+      setThreadError(threadIdForSend, null);
+      setOptimisticUserMessages((existing) => [
+        ...existing,
+        {
+          id: messageIdForSend,
+          role: "user",
+          text: trimmed,
+          createdAt: messageCreatedAt,
+          streaming: false,
+        },
+      ]);
+      shouldAutoScrollRef.current = true;
+      forceStickToBottom();
+
+      try {
+        await persistThreadSettingsForNextTurn({
+          threadId: threadIdForSend,
+          createdAt: messageCreatedAt,
+          ...(selectedModel ? { model: selectedModel } : {}),
+          runtimeMode,
+          interactionMode: nextInteractionMode,
+        });
+
+        // Keep the mode toggle and plan-follow-up banner in sync immediately
+        // while the same-thread implementation turn is starting.
+        setComposerDraftInteractionMode(threadIdForSend, nextInteractionMode);
+
+        await api.orchestration.dispatchCommand({
+          type: "thread.turn.start",
+          commandId: newCommandId(),
+          threadId: threadIdForSend,
+          message: {
+            messageId: messageIdForSend,
+            role: "user",
+            text: trimmed,
+            attachments: [],
+          },
+          provider: selectedProvider,
+          model: selectedModel || undefined,
+          ...(selectedModelOptionsForDispatch
+            ? { modelOptions: selectedModelOptionsForDispatch }
+            : {}),
+          assistantDeliveryMode: settings.enableAssistantStreaming ? "streaming" : "buffered",
+          runtimeMode,
+          interactionMode: nextInteractionMode,
+          createdAt: messageCreatedAt,
+        });
+        sendInFlightRef.current = false;
+      } catch (err) {
+        setOptimisticUserMessages((existing) =>
+          existing.filter((message) => message.id !== messageIdForSend),
+        );
+        setThreadError(
+          threadIdForSend,
+          err instanceof Error ? err.message : "Failed to send plan follow-up.",
+        );
+        sendInFlightRef.current = false;
+        resetSendPhase();
+      }
+    },
+    [
+      activeThread,
+      beginSendPhase,
+      forceStickToBottom,
+      isConnecting,
+      isSendBusy,
+      isServerThread,
+      persistThreadSettingsForNextTurn,
+      resetSendPhase,
+      runtimeMode,
+      selectedModel,
+      selectedModelOptionsForDispatch,
+      selectedProvider,
+      setComposerDraftInteractionMode,
+      setThreadError,
+      settings.enableAssistantStreaming,
+    ],
+  );
+
+
   const onSend = useCallback(
     async (e?: { preventDefault: () => void }) => {
       e?.preventDefault();
@@ -3560,116 +3671,6 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
       }));
     },
     [onRespondToUserInput, pendingUserInputAnswersByRequestId, pendingUserInputs],
-  );
-
-  const onSubmitPlanFollowUp = useCallback(
-    async ({
-      text,
-      interactionMode: nextInteractionMode,
-    }: {
-      text: string;
-      interactionMode: "default" | "plan";
-    }) => {
-      const api = readNativeApi();
-      if (
-        !api ||
-        !activeThread ||
-        !isServerThread ||
-        isSendBusy ||
-        isConnecting ||
-        sendInFlightRef.current
-      ) {
-        return;
-      }
-
-      const trimmed = text.trim();
-      if (!trimmed) {
-        return;
-      }
-
-      const threadIdForSend = activeThread.id;
-      const messageIdForSend = newMessageId();
-      const messageCreatedAt = new Date().toISOString();
-
-      sendInFlightRef.current = true;
-      beginSendPhase("sending-turn");
-      setThreadError(threadIdForSend, null);
-      setOptimisticUserMessages((existing) => [
-        ...existing,
-        {
-          id: messageIdForSend,
-          role: "user",
-          text: trimmed,
-          createdAt: messageCreatedAt,
-          streaming: false,
-        },
-      ]);
-      shouldAutoScrollRef.current = true;
-      forceStickToBottom();
-
-      try {
-        await persistThreadSettingsForNextTurn({
-          threadId: threadIdForSend,
-          createdAt: messageCreatedAt,
-          ...(selectedModel ? { model: selectedModel } : {}),
-          runtimeMode,
-          interactionMode: nextInteractionMode,
-        });
-
-        // Keep the mode toggle and plan-follow-up banner in sync immediately
-        // while the same-thread implementation turn is starting.
-        setComposerDraftInteractionMode(threadIdForSend, nextInteractionMode);
-
-        await api.orchestration.dispatchCommand({
-          type: "thread.turn.start",
-          commandId: newCommandId(),
-          threadId: threadIdForSend,
-          message: {
-            messageId: messageIdForSend,
-            role: "user",
-            text: trimmed,
-            attachments: [],
-          },
-          provider: selectedProvider,
-          model: selectedModel || undefined,
-          ...(selectedModelOptionsForDispatch
-            ? { modelOptions: selectedModelOptionsForDispatch }
-            : {}),
-          assistantDeliveryMode: settings.enableAssistantStreaming ? "streaming" : "buffered",
-          runtimeMode,
-          interactionMode: nextInteractionMode,
-          createdAt: messageCreatedAt,
-        });
-        sendInFlightRef.current = false;
-      } catch (err) {
-        setOptimisticUserMessages((existing) =>
-          existing.filter((message) => message.id !== messageIdForSend),
-        );
-        setThreadError(
-          threadIdForSend,
-          err instanceof Error ? err.message : "Failed to send plan follow-up.",
-        );
-        sendInFlightRef.current = false;
-        resetSendPhase();
-      }
-    },
-    [
-      activeThread,
-      beginSendPhase,
-      forceStickToBottom,
-      isConnecting,
-      isSendBusy,
-      isServerThread,
-      persistThreadSettingsForNextTurn,
-      resetSendPhase,
-      runtimeMode,
-      selectedModel,
-      selectedModelOptionsForDispatch,
-      selectedProvider,
-      setComposerDraftInteractionMode,
-      setThreadError,
-      settings.enableAssistantStreaming,
-    ],
   );
 
   const onImplementPlanInNewThread = useCallback(async () => {
