@@ -579,18 +579,60 @@ const VscodeEntryIcon = memo(function VscodeEntryIcon(props: {
   );
 });
 
+const elevatedComposerSurfaceClassName =
+  "relative overflow-hidden rounded-lg border border-border bg-popover shadow-lg/5 before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-linear-to-r before:from-transparent before:via-primary/18 before:to-transparent";
+
+function composerCommandMenuSectionTitle(triggerKind: ComposerTriggerKind | null): string {
+  switch (triggerKind) {
+    case "path":
+      return "Workspace files";
+    case "slash-command":
+      return "Quick actions";
+    case "slash-model":
+      return "Available models";
+    default:
+      return "Suggestions";
+  }
+}
+
+function composerCommandMenuEmptyState(input: {
+  isLoading: boolean;
+  triggerKind: ComposerTriggerKind | null;
+}): string {
+  if (input.isLoading) {
+    return "Searching workspace files...";
+  }
+  if (input.triggerKind === "path") {
+    return "No matching files or folders.";
+  }
+  if (input.triggerKind === "slash-model") {
+    return "No matching models.";
+  }
+  return "No matching command.";
+}
+
 const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
   item: ComposerCommandItem;
   resolvedTheme: "light" | "dark";
   isActive: boolean;
   onSelect: (item: ComposerCommandItem) => void;
 }) {
+  const itemKindLabel =
+    props.item.type === "path"
+      ? props.item.pathKind === "directory"
+        ? "Folder"
+        : "File"
+      : props.item.type === "slash-command"
+        ? "Mode"
+        : "Model";
+
   return (
     <CommandItem
       value={props.item.id}
       className={cn(
-        "cursor-pointer select-none gap-2",
-        props.isActive && "bg-accent text-accent-foreground",
+        "cursor-pointer select-none rounded-md border border-transparent bg-transparent px-3 py-2.5 transition-all duration-150",
+        "data-highlighted:border-primary/20 data-highlighted:bg-primary/[0.08] data-highlighted:text-foreground",
+        props.isActive && "border-primary/20 bg-primary/[0.08] text-foreground",
       )}
       onMouseDown={(event) => {
         event.preventDefault();
@@ -599,28 +641,47 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
         props.onSelect(props.item);
       }}
     >
-      {props.item.type === "path" ? (
-        <VscodeEntryIcon
-          pathValue={props.item.path}
-          kind={props.item.pathKind}
-          theme={props.resolvedTheme}
-        />
-      ) : null}
-      {props.item.type === "slash-command" ? (
-        <BotIcon className="size-4 text-muted-foreground/80" />
-      ) : null}
-      {props.item.type === "model" ? (
-        <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-          model
-        </Badge>
-      ) : null}
-      <span className="flex min-w-0 items-center gap-1.5 truncate">
-        {props.item.type === "model" && props.item.showFastBadge ? (
-          <ZapIcon className="size-3.5 shrink-0 text-amber-500" />
+      <div
+        className={cn(
+          "flex size-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-background/75 text-muted-foreground",
+          props.isActive && "border-primary/18 bg-primary/[0.09] text-primary",
+        )}
+      >
+        {props.item.type === "path" ? (
+          <VscodeEntryIcon
+            pathValue={props.item.path}
+            kind={props.item.pathKind}
+            theme={props.resolvedTheme}
+            className="size-4"
+          />
         ) : null}
-        <span className="truncate">{props.item.label}</span>
-      </span>
-      <span className="truncate text-muted-foreground/70 text-xs">{props.item.description}</span>
+        {props.item.type === "slash-command" ? <BotIcon className="size-4" /> : null}
+        {props.item.type === "model" ? <SearchIcon className="size-4" /> : null}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-3">
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+            <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
+              {props.item.type === "model" && props.item.showFastBadge ? (
+                <ZapIcon className="size-3.5 shrink-0 text-amber-500" />
+              ) : null}
+              <span className="truncate">{props.item.label}</span>
+            </span>
+          </span>
+          <Badge
+            variant={props.item.type === "slash-command" ? "secondary" : "outline"}
+            size="sm"
+            className="shrink-0 rounded-full px-2 py-0 text-[10px] uppercase tracking-[0.16em]"
+          >
+            {itemKindLabel}
+          </Badge>
+        </div>
+        {props.item.description ? (
+          <p className="mt-1 truncate text-xs leading-relaxed text-muted-foreground/78">
+            {props.item.description}
+          </p>
+        ) : null}
+      </div>
     </CommandItem>
   );
 });
@@ -634,6 +695,12 @@ const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
   onHighlightedItemChange: (itemId: string | null) => void;
   onSelect: (item: ComposerCommandItem) => void;
 }) {
+  const sectionTitle = composerCommandMenuSectionTitle(props.triggerKind);
+  const emptyState = composerCommandMenuEmptyState({
+    isLoading: props.isLoading,
+    triggerKind: props.triggerKind,
+  });
+
   return (
     <Command
       mode="none"
@@ -643,27 +710,57 @@ const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
         );
       }}
     >
-      <div className="relative overflow-hidden rounded-xl border border-border/80 bg-popover/96 shadow-lg/8 backdrop-blur-xs">
-        <CommandList className="max-h-64">
-          {props.items.map((item) => (
-            <ComposerCommandMenuItem
-              key={item.id}
-              item={item}
-              resolvedTheme={props.resolvedTheme}
-              isActive={props.activeItemId === item.id}
-              onSelect={props.onSelect}
-            />
-          ))}
-        </CommandList>
-        {props.items.length === 0 && (
-          <p className="px-3 py-2 text-muted-foreground/70 text-xs">
-            {props.isLoading
-              ? "Searching workspace files..."
-              : props.triggerKind === "path"
-                ? "No matching files or folders."
-                : "No matching command."}
-          </p>
+      <div
+        className={cn(
+          elevatedComposerSurfaceClassName,
+          "bg-popover/96",
         )}
+      >
+        <div className="border-b border-border/70 bg-linear-to-r from-primary/[0.08] via-primary/[0.03] to-transparent px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium uppercase tracking-[0.24em] text-muted-foreground/85">
+                {sectionTitle}
+              </p>
+              <p className="mt-1 truncate text-sm text-foreground/86">
+                {props.triggerKind === "path"
+                  ? "Tag files or folders directly in the composer"
+                  : props.triggerKind === "slash-model"
+                    ? "Switch models inline without leaving the composer"
+                    : "Apply a mode or command inline"}
+              </p>
+            </div>
+            <Badge
+              variant="outline"
+              className="rounded-full border-border/70 bg-background/70 px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/80"
+            >
+              {props.items.length}
+            </Badge>
+          </div>
+        </div>
+
+        {props.items.length > 0 ? (
+          <CommandList className="max-h-72 px-2.5 py-2.5">
+            {props.items.map((item) => (
+              <ComposerCommandMenuItem
+                key={item.id}
+                item={item}
+                resolvedTheme={props.resolvedTheme}
+                isActive={props.activeItemId === item.id}
+                onSelect={props.onSelect}
+              />
+            ))}
+          </CommandList>
+        ) : (
+          <div className="px-4 py-6">
+            <p className="text-sm text-muted-foreground/78">{emptyState}</p>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-3 border-t border-border/60 bg-background/50 px-4 py-2.5 text-[11px] text-muted-foreground/72">
+          <span>Use ↑ ↓ to move</span>
+          <span>Enter or Tab to apply</span>
+        </div>
       </div>
     </Command>
   );
@@ -3624,7 +3721,7 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
                 />
               </div>
             ) : showPlanFollowUpPrompt && activeProposedPlan ? (
-              <div className="rounded-t border-b border-border/65 bg-muted/20">
+              <div className="rounded-t-lg border-b border-primary/15 bg-primary/[0.05]">
                 <ComposerPlanFollowUpBanner
                   key={activeProposedPlan.id}
                   planTitle={proposedPlanTitle(activeProposedPlan.planMarkdown) ?? null}
@@ -3790,12 +3887,14 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
                   <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
 
                   {/* Interaction mode toggle */}
-                  <Button
-                    variant="ghost"
-                    className="shrink-0 rounded whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
-                    size="sm"
-                    type="button"
-                    onClick={toggleInteractionMode}
+                  <Toggle
+                    variant="toolbar"
+                    size="toolbar"
+                    className="shrink-0 whitespace-nowrap"
+                    pressed={interactionMode === "plan"}
+                    onPressedChange={(pressed) => {
+                      void handleInteractionModeChange(pressed ? "plan" : "default");
+                    }}
                     title={
                       interactionMode === "plan"
                         ? "Plan mode — click to return to normal chat mode"
@@ -3806,7 +3905,7 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
                     <span className="sr-only sm:not-sr-only">
                       {interactionMode === "plan" ? "Plan" : "Chat"}
                     </span>
-                  </Button>
+                  </Toggle>
 
                   {/* Divider */}
                   <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
@@ -3846,7 +3945,6 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
                         <Button
                           size="sm"
                           variant="outline"
-                          className="rounded"
                           onClick={onPreviousActivePendingUserInputQuestion}
                           disabled={activePendingIsResponding}
                         >
@@ -3856,7 +3954,7 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
                       <Button
                         type="submit"
                         size="sm"
-                        className="rounded px-4"
+                        className="px-4"
                         disabled={
                           activePendingIsResponding ||
                           (activePendingProgress.isLastQuestion
@@ -3893,18 +3991,18 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
                       prompt.trim().length > 0 ? (
                         <Button
                           type="submit"
-                          size="sm"
-                          className="h-9 rounded px-4 sm:h-8"
+                          size="toolbar"
+                          variant="toolbar-primary"
                           disabled={isSendBusy || isConnecting}
                         >
                           {isConnecting || isSendBusy ? "Sending..." : "Refine"}
                         </Button>
                       ) : (
-                        <div className="flex items-center">
+                        <Group>
                           <Button
                             type="submit"
-                            size="sm"
-                            className="h-9 rounded px-4 sm:h-8"
+                            size="toolbar"
+                            variant="toolbar-primary"
                             disabled={isSendBusy || isConnecting}
                           >
                             {isConnecting || isSendBusy ? "Sending..." : "Implement"}
@@ -3913,9 +4011,8 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
                             <MenuTrigger
                               render={
                                 <Button
-                                  size="sm"
-                                  variant="default"
-                                  className="h-9 rounded px-2 sm:h-8"
+                                  size="toolbar"
+                                  variant="toolbar-primary"
                                   aria-label="Implementation actions"
                                   disabled={isSendBusy || isConnecting}
                                 />
@@ -3932,7 +4029,7 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
                               </MenuItem>
                             </MenuPopup>
                           </Menu>
-                        </div>
+                        </Group>
                       )
                     ) : (
                       <button
@@ -4469,7 +4566,9 @@ const PlanModePanel = memo(function PlanModePanel({ activePlan }: PlanModePanelP
             <span className="font-mono text-[10px] uppercase text-muted-foreground">
               {completedCount}/{activePlan.steps.length}
             </span>
-            <ChevronDownIcon className={cn("size-4 text-muted-foreground transition-transform", expanded && "rotate-180")} />
+            <ChevronDownIcon
+              className={cn("size-4 text-muted-foreground transition-transform", expanded && "rotate-180")}
+            />
           </div>
         </button>
 
@@ -4596,16 +4695,23 @@ const ComposerPlanFollowUpBanner = memo(function ComposerPlanFollowUpBanner({
   planTitle: string | null;
 }) {
   return (
-    <div className="px-4 py-3.5 sm:px-5 sm:py-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="uppercase text-sm tracking-[0.2em]">Plan ready</span>
-        {planTitle ? (
-          <span className="min-w-0 flex-1 truncate text-sm font-medium">{planTitle}</span>
-        ) : null}
+    <div className="flex items-start gap-3 px-4 py-3.5 sm:px-5 sm:py-4">
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
+        <ListTodoIcon className="size-4" />
       </div>
-      {/* <div className="mt-2 text-xs text-muted-foreground">
-        Review the plan
-      </div> */}
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium tracking-[0.18em] text-primary uppercase">
+            Plan ready
+          </span>
+          {planTitle ? (
+            <span className="min-w-0 truncate text-sm font-medium text-foreground">{planTitle}</span>
+          ) : null}
+        </div>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Type feedback to refine it, or implement it directly.
+        </p>
+      </div>
     </div>
   );
 });
@@ -5081,9 +5187,23 @@ const ProposedPlanCard = memo(function ProposedPlanCard({
   };
 
   return (
-    <div className="rounded-[24px] border border-border/80 bg-card/70 p-4 sm:p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
+    <ArtifactCardShell
+      className="bg-popover"
+      footer={
+        canCollapse ? (
+          <button
+            type="button"
+            className="flex w-full items-center justify-center gap-1 border-t border-border-subtle bg-foreground/5 px-4 py-2 text-[11px] font-bold tracking-wider text-primary uppercase transition-colors hover:text-primary/80"
+            onClick={() => setExpanded((value) => !value)}
+          >
+            <span>{expanded ? "Show Less" : "Show More"}</span>
+            <ChevronDownIcon className={cn("size-3", expanded && "rotate-180")} />
+          </button>
+        ) : undefined
+      }
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle bg-foreground/5 px-4 py-2">
+        <div className="flex min-w-0 items-center gap-2.5">
           <Badge variant="secondary">Plan</Badge>
           <p className="truncate text-sm font-medium text-foreground">{title}</p>
         </div>
@@ -5101,20 +5221,13 @@ const ProposedPlanCard = memo(function ProposedPlanCard({
           </MenuPopup>
         </Menu>
       </div>
-      <div className="mt-4">
+      <div className="px-4 py-4 sm:px-5">
         <div className={cn("relative", canCollapse && !expanded && "max-h-104 overflow-hidden")}>
           <ChatMarkdown text={planMarkdown} cwd={cwd} isStreaming={false} />
           {canCollapse && !expanded ? (
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-linear-to-t from-card/95 via-card/80 to-transparent" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-linear-to-t from-popover via-popover/86 to-transparent" />
           ) : null}
         </div>
-        {canCollapse ? (
-          <div className="mt-4 flex justify-center">
-            <Button size="sm" variant="outline" onClick={() => setExpanded((value) => !value)}>
-              {expanded ? "Collapse plan" : "Expand plan"}
-            </Button>
-          </div>
-        ) : null}
       </div>
 
       <Dialog
@@ -5174,7 +5287,7 @@ const ProposedPlanCard = memo(function ProposedPlanCard({
           </DialogFooter>
         </DialogPopup>
       </Dialog>
-    </div>
+    </ArtifactCardShell>
   );
 });
 
