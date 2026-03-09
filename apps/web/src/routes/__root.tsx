@@ -24,6 +24,7 @@ import { terminalRunningSubprocessFromEvent } from "../terminalActivity";
 import { onServerConfigUpdated, onServerWelcome } from "../wsNativeApi";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
+import { createOrchestrationSyncScheduler } from "../orchestrationSync";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -166,14 +167,15 @@ function EventRouter() {
     const api = readNativeApi();
     if (!api) return;
     let disposed = false;
-    let latestSequence = 0;
-    let syncing = false;
-    let pending = false;
+    let needsProviderInvalidation = false;
 
-    const flushSnapshotSync = async (): Promise<void> => {
+    const flushSnapshotSync = async (): Promise<number | undefined> => {
       const snapshot = await api.orchestration.getSnapshot();
       if (disposed) return;
-      latestSequence = Math.max(latestSequence, snapshot.snapshotSequence);
+      if (needsProviderInvalidation) {
+        needsProviderInvalidation = false;
+        await queryClient.invalidateQueries({ queryKey: providerQueryKeys.all });
+      }
       startTransition(() => {
         syncServerReadModel(snapshot);
         const draftThreadIds = Object.keys(
@@ -185,53 +187,28 @@ function EventRouter() {
         });
         removeOrphanedTerminalStates(activeThreadIds);
       });
-      if (pending) {
-        pending = false;
-        await flushSnapshotSync();
-      }
+      return snapshot.snapshotSequence;
     };
 
-    const syncSnapshot = async () => {
-      if (syncing) {
-        pending = true;
-        return;
-      }
-      syncing = true;
-      pending = false;
-      try {
-        await flushSnapshotSync();
-      } catch {
-        // Keep prior state and wait for next domain event to trigger a resync.
-      }
-      syncing = false;
-    };
+    const syncScheduler = createOrchestrationSyncScheduler({
+      lowPriorityDelayMs: 250,
+      sync: async () => {
+        try {
+          return await flushSnapshotSync();
+        } catch {
+          // Keep prior state and wait for the next sync trigger.
+          return undefined;
+        }
+      },
+    });
 
-    void syncSnapshot().catch(() => undefined);
-
-    const DOMAIN_EVENT_BATCH_MS = 100;
-    let batchTimer: ReturnType<typeof setTimeout> | null = null;
-    let needsProviderInvalidation = false;
-
-    const flushBatch = () => {
-      batchTimer = null;
-      if (needsProviderInvalidation) {
-        needsProviderInvalidation = false;
-        void queryClient.invalidateQueries({ queryKey: providerQueryKeys.all });
-      }
-      void syncSnapshot();
-    };
+    syncScheduler.syncNow();
 
     const unsubDomainEvent = api.orchestration.onDomainEvent((event) => {
-      if (event.sequence <= latestSequence) {
-        return;
-      }
-      latestSequence = event.sequence;
       if (event.type === "thread.turn-diff-completed" || event.type === "thread.reverted") {
         needsProviderInvalidation = true;
       }
-      if (batchTimer === null) {
-        batchTimer = setTimeout(flushBatch, DOMAIN_EVENT_BATCH_MS);
-      }
+      syncScheduler.handleDomainEvent(event);
     });
     const unsubTerminalEvent = api.terminal.onEvent((event) => {
       const hasRunningSubprocess = terminalRunningSubprocessFromEvent(event);
@@ -326,9 +303,7 @@ function EventRouter() {
     });
     return () => {
       disposed = true;
-      if (batchTimer !== null) {
-        clearTimeout(batchTimer);
-      }
+      syncScheduler.dispose();
       unsubDomainEvent();
       unsubTerminalEvent();
       unsubWelcome();

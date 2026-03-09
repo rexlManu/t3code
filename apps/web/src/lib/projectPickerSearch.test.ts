@@ -14,6 +14,7 @@ function makeProject(input: { id: string; name: string; cwd: string }): Project 
     name: input.name,
     cwd: input.cwd,
     model: "gpt-5-codex",
+    updatedAt: "2026-03-07T00:00:00.000Z",
     expanded: true,
     scripts: [],
   };
@@ -33,12 +34,14 @@ function makeThread(input: { id: string; projectId: string; title: string; creat
     proposedPlans: [],
     error: null,
     createdAt: input.createdAt ?? "2026-03-07T00:00:00.000Z",
+    updatedAt: input.createdAt ?? "2026-03-07T00:00:00.000Z",
     latestTurn: null,
     lastVisitedAt: undefined,
     branch: null,
     worktreePath: null,
     turnDiffSummaries: [],
     activities: [],
+    hasPendingApprovals: false,
   };
 }
 

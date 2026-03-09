@@ -1,5 +1,10 @@
 import { type Thread } from "../types";
 
+type ThreadStatusSource = Pick<
+  Thread,
+  "latestTurn" | "lastVisitedAt" | "session" | "hasPendingApprovals"
+>;
+
 export interface ThreadStatusPill {
   label: "Working" | "Connecting" | "Completed" | "Pending Approval";
   colorClass: string;
@@ -13,7 +18,7 @@ export interface TerminalStatusIndicator {
   pulse: boolean;
 }
 
-function hasUnseenCompletion(thread: Thread): boolean {
+function hasUnseenCompletion(thread: ThreadStatusSource): boolean {
   if (!thread.latestTurn?.completedAt) return false;
   const completedAt = Date.parse(thread.latestTurn.completedAt);
   if (Number.isNaN(completedAt)) return false;
@@ -24,11 +29,8 @@ function hasUnseenCompletion(thread: Thread): boolean {
   return completedAt > lastVisitedAt;
 }
 
-export function getThreadStatusPill(
-  thread: Thread,
-  hasPendingApprovals: boolean,
-): ThreadStatusPill | null {
-  if (hasPendingApprovals) {
+export function getThreadStatusPill(thread: ThreadStatusSource): ThreadStatusPill | null {
+  if (thread.hasPendingApprovals) {
     return {
       label: "Pending Approval",
       colorClass: "text-amber-600 dark:text-amber-300/90",

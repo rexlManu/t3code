@@ -9,7 +9,6 @@ import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { getTerminalStatusIndicator, getThreadStatusPill } from "../lib/threadStatus";
 import { type ProjectPickerThreadSearchEntry } from "../lib/projectPickerSearch";
 import { selectProjectIdForThread, useStore } from "../store";
-import { derivePendingApprovals } from "../session-logic";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { ProjectPickerDialog } from "./ProjectPickerDialog";
 
@@ -92,7 +91,7 @@ export function ChatShellProjectPicker() {
     >();
     for (const thread of threads) {
       indicators.set(thread.id, {
-        threadStatus: getThreadStatusPill(thread, derivePendingApprovals(thread.activities).length > 0),
+        threadStatus: getThreadStatusPill(thread),
         terminalStatus: getTerminalStatusIndicator(
           selectThreadTerminalState(terminalStateByThreadId, thread.id).runningTerminalIds,
         ),

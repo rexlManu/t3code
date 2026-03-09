@@ -51,6 +51,12 @@ let fixture: TestFixture;
 const wsRequests: WsRequestEnvelope["body"][] = [];
 const wsLink = ws.link(/ws(s)?:\/\/.*/);
 const connectedWsClients = new Set<{ send: (data: string) => void }>();
+const UNHANDLED_WS_REQUEST = Symbol("unhandled-ws-request");
+type WsRequestHandlerResult = unknown | typeof UNHANDLED_WS_REQUEST;
+type WsRequestHandler = (
+  request: WsRequestEnvelope["body"],
+) => Promise<WsRequestHandlerResult> | WsRequestHandlerResult;
+let wsRequestHandler: WsRequestHandler | null = null;
 
 interface ViewportSpec {
   name: string;
@@ -89,6 +95,7 @@ interface MountedChatView {
   cleanup: () => Promise<void>;
   measureUserRow: (targetMessageId: MessageId) => Promise<UserRowMeasurement>;
   setViewport: (viewport: ViewportSpec) => Promise<void>;
+  getPathname: () => string;
 }
 
 function isoAt(offsetSeconds: number): string {
@@ -384,14 +391,14 @@ function createTwoThreadStreamingSnapshot(): OrchestrationReadModel {
   };
 }
 
-function resolveWsRpc(tag: string): unknown {
-  if (tag === ORCHESTRATION_WS_METHODS.getSnapshot) {
+function resolveWsRpc(request: WsRequestEnvelope["body"]): unknown {
+  if (request._tag === ORCHESTRATION_WS_METHODS.getSnapshot) {
     return fixture.snapshot;
   }
-  if (tag === WS_METHODS.serverGetConfig) {
+  if (request._tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
   }
-  if (tag === WS_METHODS.gitListBranches) {
+  if (request._tag === WS_METHODS.gitListBranches) {
     return {
       isRepo: true,
       branches: [
@@ -404,7 +411,7 @@ function resolveWsRpc(tag: string): unknown {
       ],
     };
   }
-  if (tag === WS_METHODS.gitStatus) {
+  if (request._tag === WS_METHODS.gitStatus) {
     return {
       branch: "main",
       hasWorkingTreeChanges: false,
@@ -419,7 +426,7 @@ function resolveWsRpc(tag: string): unknown {
       pr: null,
     };
   }
-  if (tag === WS_METHODS.projectsSearchEntries) {
+  if (request._tag === WS_METHODS.projectsSearchEntries) {
     return {
       entries: [],
       truncated: false,
@@ -450,12 +457,20 @@ const worker = setupWorker(
       const method = request.body?._tag;
       if (typeof method !== "string") return;
       wsRequests.push(request.body);
-      client.send(
-        JSON.stringify({
-          id: request.id,
-          result: resolveWsRpc(method),
-        }),
-      );
+      void (async () => {
+        const customResult = wsRequestHandler
+          ? await wsRequestHandler(request.body)
+          : UNHANDLED_WS_REQUEST;
+        client.send(
+          JSON.stringify({
+            id: request.id,
+            result:
+              customResult === UNHANDLED_WS_REQUEST
+                ? resolveWsRpc(request.body)
+                : customResult,
+          }),
+        );
+      })();
     });
     client.addEventListener("close", () => {
       connectedWsClients.delete(client);
@@ -525,6 +540,44 @@ function makeThreadMessageSentEvent(input: {
       text: input.text,
       turnId: input.turnId,
       streaming: input.streaming,
+      createdAt: input.occurredAt,
+      updatedAt: input.occurredAt,
+    },
+  };
+}
+
+function makeThreadCreatedEvent(input: {
+  sequence: number;
+  threadId: ThreadId;
+  projectId: ProjectId;
+  title: string;
+  model: string;
+  runtimeMode: "full-access" | "approval-required";
+  interactionMode: "default" | "plan";
+  branch: string | null;
+  worktreePath: string | null;
+  occurredAt: string;
+}): OrchestrationEvent {
+  return {
+    sequence: input.sequence,
+    eventId: `event-${input.sequence}` as OrchestrationEvent["eventId"],
+    type: "thread.created",
+    aggregateKind: "thread",
+    aggregateId: input.threadId,
+    occurredAt: input.occurredAt,
+    commandId: `cmd-${input.sequence}` as OrchestrationEvent["commandId"],
+    causationEventId: null,
+    correlationId: `cmd-${input.sequence}` as OrchestrationEvent["correlationId"],
+    metadata: {},
+    payload: {
+      threadId: input.threadId,
+      projectId: input.projectId,
+      title: input.title,
+      model: input.model,
+      runtimeMode: input.runtimeMode,
+      interactionMode: input.interactionMode,
+      branch: input.branch,
+      worktreePath: input.worktreePath,
       createdAt: input.occurredAt,
       updatedAt: input.occurredAt,
     },
@@ -707,9 +760,11 @@ async function mountChatView(options: {
   viewport: ViewportSpec;
   snapshot: OrchestrationReadModel;
   configureFixture?: (fixture: TestFixture) => void;
+  handleWsRequest?: WsRequestHandler;
 }): Promise<MountedChatView> {
   fixture = buildFixture(options.snapshot);
   options.configureFixture?.(fixture);
+  wsRequestHandler = options.handleWsRequest ?? null;
   await setViewport(options.viewport);
   await waitForProductionStyles();
 
@@ -736,6 +791,7 @@ async function mountChatView(options: {
 
   return {
     cleanup: async () => {
+      wsRequestHandler = null;
       await screen.unmount();
       host.remove();
     },
@@ -745,6 +801,7 @@ async function mountChatView(options: {
       await waitForProductionStyles();
       await waitForDeferredTimeline();
     },
+    getPathname: () => router.state.location.pathname,
   };
 }
 
@@ -792,6 +849,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     document.body.innerHTML = "";
     wsRequests.length = 0;
     connectedWsClients.clear();
+    wsRequestHandler = null;
     useComposerDraftStore.setState({
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
@@ -1073,6 +1131,180 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("keeps the draft thread route stable until the server thread hydrates after the first send", async () => {
+    const promptText = "Finish draft promotion";
+    const turnId = "turn-draft-promotion" as TurnId;
+    let dispatchSequence = 10;
+    let createdThreadTitle = "Draft promotion";
+    let createdModel = "gpt-5";
+    let createdRuntimeMode: "full-access" | "approval-required" = "full-access";
+    let createdInteractionMode: "default" | "plan" = "default";
+    let hydrationTimer: ReturnType<typeof setTimeout> | null = null;
+
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: {
+          projectId: PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          envMode: "local",
+        },
+      },
+      projectDraftThreadIdByProjectId: {
+        [PROJECT_ID]: THREAD_ID,
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+      handleWsRequest: async (request) => {
+        if (request._tag !== ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return UNHANDLED_WS_REQUEST;
+        }
+
+        const command = request.command as
+          | {
+              type?: string;
+              title?: string;
+              model?: string;
+              runtimeMode?: "full-access" | "approval-required";
+              interactionMode?: "default" | "plan";
+              branch?: string | null;
+              worktreePath?: string | null;
+              createdAt?: string;
+              message?: {
+                messageId?: MessageId;
+                text?: string;
+              };
+            }
+          | undefined;
+
+        if (command?.type === "thread.create") {
+          createdThreadTitle = command.title ?? createdThreadTitle;
+          createdModel = command.model ?? createdModel;
+          createdRuntimeMode = command.runtimeMode ?? createdRuntimeMode;
+          createdInteractionMode = command.interactionMode ?? createdInteractionMode;
+          return { sequence: dispatchSequence += 1 };
+        }
+
+        if (command?.type === "thread.turn.start") {
+          const occurredAt = command.createdAt ?? isoAt(40);
+          const messageId = command.message?.messageId ?? ("msg-draft-user" as MessageId);
+          const messageText = command.message?.text ?? promptText;
+          hydrationTimer = window.setTimeout(() => {
+            const sequence = updateFixtureSnapshot((snapshot, nextSequenceValue) => ({
+              ...snapshot,
+              snapshotSequence: nextSequenceValue,
+              updatedAt: occurredAt,
+              threads: [
+                {
+                  id: THREAD_ID,
+                  projectId: PROJECT_ID,
+                  title: createdThreadTitle,
+                  model: createdModel,
+                  interactionMode: createdInteractionMode,
+                  runtimeMode: createdRuntimeMode,
+                  branch: null,
+                  worktreePath: null,
+                  latestTurn: {
+                    turnId,
+                    state: "running",
+                    requestedAt: occurredAt,
+                    startedAt: occurredAt,
+                    completedAt: null,
+                    assistantMessageId: null,
+                  },
+                  createdAt: NOW_ISO,
+                  updatedAt: occurredAt,
+                  deletedAt: null,
+                  messages: [
+                    {
+                      id: messageId,
+                      role: "user",
+                      text: messageText,
+                      turnId,
+                      streaming: false,
+                      createdAt: occurredAt,
+                      updatedAt: occurredAt,
+                    },
+                  ],
+                  activities: [],
+                  proposedPlans: [],
+                  checkpoints: [],
+                  session: {
+                    threadId: THREAD_ID,
+                    status: "connecting",
+                    providerName: "codex",
+                    runtimeMode: createdRuntimeMode,
+                    activeTurnId: turnId,
+                    lastError: null,
+                    updatedAt: occurredAt,
+                  },
+                },
+              ],
+            }));
+            pushDomainEvent(
+              makeThreadCreatedEvent({
+                sequence,
+                threadId: THREAD_ID,
+                projectId: PROJECT_ID,
+                title: createdThreadTitle,
+                model: createdModel,
+                runtimeMode: createdRuntimeMode,
+                interactionMode: createdInteractionMode,
+                branch: null,
+                worktreePath: null,
+                occurredAt,
+              }),
+            );
+          }, 180);
+
+          return { sequence: dispatchSequence += 1 };
+        }
+
+        return { sequence: dispatchSequence += 1 };
+      },
+    });
+
+    try {
+      const composerEditor = await waitForComposerEditor();
+      await typeInComposer(composerEditor, promptText);
+
+      const sendButton = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]'),
+        "Unable to find send button.",
+      );
+      sendButton.click();
+
+      await new Promise((resolve) => setTimeout(resolve, 75));
+      await waitForLayout();
+
+      expect(mounted.getPathname()).toBe(`/${THREAD_ID}`);
+      expect(useComposerDraftStore.getState().draftThreadsByThreadId[THREAD_ID]).toBeTruthy();
+      expect(document.body.textContent).not.toContain(
+        "Select a thread or create a new one to get started.",
+      );
+
+      await vi.waitFor(
+        () => {
+          expect(useComposerDraftStore.getState().draftThreadsByThreadId[THREAD_ID]).toBeUndefined();
+          expect(mounted.getPathname()).toBe(`/${THREAD_ID}`);
+          expect(document.body.textContent).toContain(promptText);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      if (hydrationTimer !== null) {
+        clearTimeout(hydrationTimer);
+      }
+      await mounted.cleanup();
+    }
+  });
+
   it("toggles plan mode with Shift+Tab only while the composer is focused", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -1211,6 +1443,80 @@ describe("ChatView timeline estimator parity (full app)", () => {
       if (intervalId !== null) {
         clearInterval(intervalId);
       }
+      await mounted.cleanup();
+    }
+  });
+
+  it("coalesces a burst of low-priority domain events into a bounded snapshot refresh", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createStreamingSnapshot(),
+    });
+
+    try {
+      wsRequests.length = 0;
+
+      for (let index = 1; index <= 6; index += 1) {
+        const occurredAt = isoAt(80 + index);
+        const sequence = updateFixtureSnapshot((snapshot, nextSequenceValue) => ({
+          ...snapshot,
+          snapshotSequence: nextSequenceValue,
+          updatedAt: occurredAt,
+          threads: snapshot.threads.map((thread) => {
+            if (thread.id !== THREAD_ID) {
+              return thread;
+            }
+            return {
+              ...thread,
+              updatedAt: occurredAt,
+              messages: thread.messages.map((message) =>
+                message.id === ("assistant-stream" as MessageId)
+                  ? {
+                      ...message,
+                      text: `burst ${index}`,
+                      streaming: true,
+                      updatedAt: occurredAt,
+                    }
+                  : message,
+              ),
+              session: thread.session
+                ? {
+                    ...thread.session,
+                    status: "running",
+                    activeTurnId: "turn-streaming" as TurnId,
+                    updatedAt: occurredAt,
+                  }
+                : thread.session,
+            };
+          }),
+        }));
+
+        pushDomainEvent(
+          makeThreadMessageSentEvent({
+            sequence,
+            threadId: THREAD_ID,
+            turnId: "turn-streaming" as TurnId,
+            messageId: "assistant-stream" as MessageId,
+            text: `burst ${index}`,
+            streaming: true,
+            occurredAt,
+          }),
+        );
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      await vi.waitFor(
+        () => {
+          expect(document.body.textContent).toContain("burst 6");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const snapshotRequests = wsRequests.filter(
+        (request) => request._tag === ORCHESTRATION_WS_METHODS.getSnapshot,
+      );
+      expect(snapshotRequests).toHaveLength(1);
+    } finally {
       await mounted.cleanup();
     }
   });
