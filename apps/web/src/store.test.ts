@@ -145,6 +145,19 @@ describe("store pure functions", () => {
 });
 
 describe("store read model sync", () => {
+  it("keeps projects collapsed by default when there is no persisted expansion state", () => {
+    const initialState: AppState = {
+      projects: [],
+      threads: [],
+      threadsHydrated: false,
+    };
+    const readModel = makeReadModel(makeReadModelThread({}));
+
+    const next = syncServerReadModel(initialState, readModel);
+
+    expect(next.projects[0]?.expanded).toBe(false);
+  });
+
   it("falls back to the codex default for unsupported provider models without an active session", () => {
     const initialState = makeState(makeThread());
     const readModel = makeReadModel(

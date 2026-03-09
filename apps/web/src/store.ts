@@ -250,7 +250,7 @@ function normalizeProject(
       previous?.expanded ??
       (persistedExpandedProjectCwds.size > 0
         ? persistedExpandedProjectCwds.has(project.workspaceRoot)
-        : true),
+        : false),
     scripts: normalizeProjectScripts(project.scripts, previous?.scripts ?? []),
   };
 
