@@ -2,6 +2,7 @@ import { Fragment, type ReactNode, createElement, useEffect } from "react";
 import {
   DEFAULT_MODEL_BY_PROVIDER,
   type ProviderKind,
+  type ProjectScript,
   ThreadId,
   type OrchestrationReadModel,
   type OrchestrationSessionStatus,
@@ -114,15 +115,93 @@ function updateThread(
   return changed ? next : threads;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
+}
+
+function deepEqual(value: unknown, other: unknown): boolean {
+  if (Object.is(value, other)) {
+    return true;
+  }
+  if (typeof value !== typeof other) {
+    return false;
+  }
+  if (Array.isArray(value)) {
+    if (!Array.isArray(other) || value.length !== other.length) {
+      return false;
+    }
+    for (let index = 0; index < value.length; index += 1) {
+      if (!deepEqual(value[index], other[index])) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (!isRecord(value) || !isRecord(other)) {
+    return false;
+  }
+  const valueKeys = Object.keys(value);
+  const otherKeys = Object.keys(other);
+  if (valueKeys.length !== otherKeys.length) {
+    return false;
+  }
+  for (const key of valueKeys) {
+    if (!(key in other)) {
+      return false;
+    }
+    if (!deepEqual(value[key], other[key])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function reconcileValue<T>(previous: T | undefined, next: T): T {
+  return previous !== undefined && deepEqual(previous, next) ? previous : next;
+}
+
+function reconcileArrayByKey<TPrevious, TNext, TResult, TKey>(
+  previous: readonly TPrevious[],
+  next: readonly TNext[],
+  getPreviousKey: (value: TPrevious) => TKey,
+  getNextKey: (value: TNext) => TKey,
+  reconcileItem: (previous: TPrevious | undefined, next: TNext) => TResult,
+): readonly TResult[] {
+  const previousByKey = new Map(previous.map((value) => [getPreviousKey(value), value] as const));
+  let changed = previous.length !== next.length;
+  const reconciled = next.map((value, index) => {
+    const previousValue = previousByKey.get(getNextKey(value));
+    const nextValue = reconcileItem(previousValue, value);
+    if (!changed && previous[index] !== nextValue) {
+      changed = true;
+    }
+    return nextValue;
+  });
+  return changed ? reconciled : (previous as unknown as readonly TResult[]);
+}
+
+function normalizeProjectScripts(
+  scripts: readonly ProjectScript[],
+  previous: readonly ProjectScript[],
+): ProjectScript[] {
+  return reconcileArrayByKey(
+    previous,
+    scripts.map((script) => ({ ...script })),
+    (script) => script.id,
+    (script) => script.id,
+    (previousScript, nextScript) => reconcileValue(previousScript, nextScript),
+  ) as ProjectScript[];
+}
+
 function mapProjectsFromReadModel(
   incoming: OrchestrationReadModel["projects"],
   previous: Project[],
 ): Project[] {
-  return incoming.map((project) => {
+  const nextProjects = incoming.map((project, index) => {
     const existing =
       previous.find((entry) => entry.id === project.id) ??
       previous.find((entry) => entry.cwd === project.workspaceRoot);
-    return {
+    const nextProject: Project = {
       id: project.id,
       name: project.title,
       cwd: project.workspaceRoot,
@@ -134,9 +213,21 @@ function mapProjectsFromReadModel(
         (persistedExpandedProjectCwds.size > 0
           ? persistedExpandedProjectCwds.has(project.workspaceRoot)
           : true),
-      scripts: project.scripts.map((script) => ({ ...script })),
+      scripts: normalizeProjectScripts(project.scripts, existing?.scripts ?? []),
     };
+    if (existing) {
+      return reconcileValue(existing, nextProject);
+    }
+    const previousAtIndex = previous[index];
+    return reconcileValue(previousAtIndex, nextProject);
   });
+  return reconcileArrayByKey(
+    previous,
+    nextProjects,
+    (project) => project.id,
+    (project) => project.id,
+    (previousProject, nextProject) => reconcileValue(previousProject, nextProject),
+  ) as Project[];
 }
 
 function toLegacySessionStatus(
@@ -223,6 +314,136 @@ function attachmentPreviewRoutePath(attachmentId: string): string {
   return `/attachments/${encodeURIComponent(attachmentId)}`;
 }
 
+function normalizeMessage(
+  message: OrchestrationReadModel["threads"][number]["messages"][number],
+  previous?: ChatMessage,
+): ChatMessage {
+  const nextAttachments = message.attachments?.map((attachment) => ({
+    type: "image" as const,
+    id: attachment.id,
+    name: attachment.name,
+    mimeType: attachment.mimeType,
+    sizeBytes: attachment.sizeBytes,
+    previewUrl: toAttachmentPreviewUrl(attachmentPreviewRoutePath(attachment.id)),
+  }));
+  const attachments =
+    nextAttachments && nextAttachments.length > 0
+      ? reconcileArrayByKey(
+          previous?.attachments ?? [],
+          nextAttachments,
+          (attachment) => attachment.id,
+          (attachment) => attachment.id,
+          (previousAttachment, nextAttachment) => reconcileValue(previousAttachment, nextAttachment),
+        )
+      : undefined;
+  const normalizedMessage: ChatMessage = {
+    id: message.id,
+    role: message.role,
+    text: message.text,
+    createdAt: message.createdAt,
+    streaming: message.streaming,
+    ...(message.streaming ? {} : { completedAt: message.updatedAt }),
+    ...(attachments && attachments.length > 0 ? { attachments: [...attachments] } : {}),
+  };
+  return reconcileValue(previous, normalizedMessage);
+}
+
+function normalizeThread(
+  thread: OrchestrationReadModel["threads"][number],
+  previous?: Thread,
+): Thread {
+  const messages = reconcileArrayByKey(
+    previous?.messages ?? [],
+    thread.messages,
+    (message) => message.id,
+    (message) => message.id,
+    (previousMessage, nextMessage) => normalizeMessage(nextMessage, previousMessage),
+  ) as ChatMessage[];
+  const proposedPlans = reconcileArrayByKey(
+    previous?.proposedPlans ?? [],
+    thread.proposedPlans.map((proposedPlan) => ({
+      id: proposedPlan.id,
+      turnId: proposedPlan.turnId,
+      planMarkdown: proposedPlan.planMarkdown,
+      createdAt: proposedPlan.createdAt,
+      updatedAt: proposedPlan.updatedAt,
+    })),
+    (proposedPlan) => proposedPlan.id,
+    (proposedPlan) => proposedPlan.id,
+    (previousProposedPlan, nextProposedPlan) =>
+      reconcileValue(previousProposedPlan, nextProposedPlan),
+  ) as Thread["proposedPlans"];
+  const turnDiffSummaries = reconcileArrayByKey(
+    previous?.turnDiffSummaries ?? [],
+    thread.checkpoints.map((checkpoint) => ({
+      turnId: checkpoint.turnId,
+      completedAt: checkpoint.completedAt,
+      status: checkpoint.status,
+      assistantMessageId: checkpoint.assistantMessageId ?? undefined,
+      checkpointTurnCount: checkpoint.checkpointTurnCount,
+      checkpointRef: checkpoint.checkpointRef,
+      files: reconcileArrayByKey(
+        previous?.turnDiffSummaries.find((summary) => summary.turnId === checkpoint.turnId)?.files ?? [],
+        checkpoint.files.map((file) => ({ ...file })),
+        (file) => file.path,
+        (file) => file.path,
+        (previousFile, nextFile) => reconcileValue(previousFile, nextFile),
+      ) as Thread["turnDiffSummaries"][number]["files"],
+    })),
+    (summary) => summary.turnId,
+    (summary) => summary.turnId,
+    (previousSummary, nextSummary) => reconcileValue(previousSummary, nextSummary),
+  ) as Thread["turnDiffSummaries"];
+  const activities = reconcileArrayByKey(
+    previous?.activities ?? [],
+    thread.activities.map((activity) => ({ ...activity })),
+    (activity) => activity.id,
+    (activity) => activity.id,
+    (previousActivity, nextActivity) => reconcileValue(previousActivity, nextActivity),
+  ) as Thread["activities"];
+  const session = thread.session
+    ? reconcileValue(
+        previous?.session ?? undefined,
+        {
+          provider: toLegacyProvider(thread.session.providerName),
+          status: toLegacySessionStatus(thread.session.status),
+          orchestrationStatus: thread.session.status,
+          activeTurnId: thread.session.activeTurnId ?? undefined,
+          createdAt: thread.session.updatedAt,
+          updatedAt: thread.session.updatedAt,
+          ...(thread.session.lastError ? { lastError: thread.session.lastError } : {}),
+        },
+      )
+    : null;
+  const normalizedThread: Thread = {
+    id: thread.id,
+    codexThreadId: null,
+    projectId: thread.projectId,
+    title: thread.title,
+    model: resolveModelSlugForProvider(
+      inferProviderForThreadModel({
+        model: thread.model,
+        sessionProviderName: thread.session?.providerName ?? null,
+      }),
+      thread.model,
+    ),
+    runtimeMode: thread.runtimeMode,
+    interactionMode: thread.interactionMode,
+    session,
+    messages,
+    proposedPlans,
+    error: thread.session?.lastError ?? null,
+    createdAt: thread.createdAt,
+    latestTurn: reconcileValue(previous?.latestTurn ?? undefined, thread.latestTurn),
+    lastVisitedAt: previous?.lastVisitedAt ?? thread.updatedAt,
+    branch: thread.branch,
+    worktreePath: thread.worktreePath,
+    turnDiffSummaries,
+    activities,
+  };
+  return reconcileValue(previous, normalizedThread);
+}
+
 // ── Pure state transition functions ────────────────────────────────────
 
 export function syncServerReadModel(state: AppState, readModel: OrchestrationReadModel): AppState {
@@ -230,81 +451,21 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     readModel.projects.filter((project) => project.deletedAt === null),
     state.projects,
   );
-  const existingThreadById = new Map(state.threads.map((thread) => [thread.id, thread] as const));
-  const threads = readModel.threads
-    .filter((thread) => thread.deletedAt === null)
-    .map((thread) => {
-      const existing = existingThreadById.get(thread.id);
-      return {
-        id: thread.id,
-        codexThreadId: null,
-        projectId: thread.projectId,
-        title: thread.title,
-        model: resolveModelSlugForProvider(
-          inferProviderForThreadModel({
-            model: thread.model,
-            sessionProviderName: thread.session?.providerName ?? null,
-          }),
-          thread.model,
-        ),
-        runtimeMode: thread.runtimeMode,
-        interactionMode: thread.interactionMode,
-        session: thread.session
-          ? {
-              provider: toLegacyProvider(thread.session.providerName),
-              status: toLegacySessionStatus(thread.session.status),
-              orchestrationStatus: thread.session.status,
-              activeTurnId: thread.session.activeTurnId ?? undefined,
-              createdAt: thread.session.updatedAt,
-              updatedAt: thread.session.updatedAt,
-              ...(thread.session.lastError ? { lastError: thread.session.lastError } : {}),
-            }
-          : null,
-        messages: thread.messages.map((message) => {
-          const attachments = message.attachments?.map((attachment) => ({
-            type: "image" as const,
-            id: attachment.id,
-            name: attachment.name,
-            mimeType: attachment.mimeType,
-            sizeBytes: attachment.sizeBytes,
-            previewUrl: toAttachmentPreviewUrl(attachmentPreviewRoutePath(attachment.id)),
-          }));
-          const normalizedMessage: ChatMessage = {
-            id: message.id,
-            role: message.role,
-            text: message.text,
-            createdAt: message.createdAt,
-            streaming: message.streaming,
-            ...(message.streaming ? {} : { completedAt: message.updatedAt }),
-            ...(attachments && attachments.length > 0 ? { attachments } : {}),
-          };
-          return normalizedMessage;
-        }),
-        proposedPlans: thread.proposedPlans.map((proposedPlan) => ({
-          id: proposedPlan.id,
-          turnId: proposedPlan.turnId,
-          planMarkdown: proposedPlan.planMarkdown,
-          createdAt: proposedPlan.createdAt,
-          updatedAt: proposedPlan.updatedAt,
-        })),
-        error: thread.session?.lastError ?? null,
-        createdAt: thread.createdAt,
-        latestTurn: thread.latestTurn,
-        lastVisitedAt: existing?.lastVisitedAt ?? thread.updatedAt,
-        branch: thread.branch,
-        worktreePath: thread.worktreePath,
-        turnDiffSummaries: thread.checkpoints.map((checkpoint) => ({
-          turnId: checkpoint.turnId,
-          completedAt: checkpoint.completedAt,
-          status: checkpoint.status,
-          assistantMessageId: checkpoint.assistantMessageId ?? undefined,
-          checkpointTurnCount: checkpoint.checkpointTurnCount,
-          checkpointRef: checkpoint.checkpointRef,
-          files: checkpoint.files.map((file) => ({ ...file })),
-        })),
-        activities: thread.activities.map((activity) => ({ ...activity })),
-      };
-    });
+  const activeThreads = readModel.threads.filter((thread) => thread.deletedAt === null);
+  const threads = reconcileArrayByKey(
+    state.threads,
+    activeThreads,
+    (thread) => thread.id,
+    (thread) => thread.id,
+    (previousThread, nextThread) => normalizeThread(nextThread, previousThread),
+  ) as Thread[];
+  if (
+    projects === state.projects &&
+    threads === state.threads &&
+    state.threadsHydrated
+  ) {
+    return state;
+  }
   return {
     ...state,
     projects,
@@ -392,6 +553,76 @@ export function setThreadBranch(
     };
   });
   return threads === state.threads ? state : { ...state, threads };
+}
+
+export function selectThreadById(state: AppState, threadId: ThreadId | null | undefined): Thread | undefined {
+  if (!threadId) return undefined;
+  return state.threads.find((thread) => thread.id === threadId);
+}
+
+export function selectProjectById(
+  state: AppState,
+  projectId: Project["id"] | null | undefined,
+): Project | undefined {
+  if (!projectId) return undefined;
+  return state.projects.find((project) => project.id === projectId);
+}
+
+export function selectThreadExists(state: AppState, threadId: ThreadId | null | undefined): boolean {
+  return selectThreadById(state, threadId) !== undefined;
+}
+
+export function selectThreadTitle(
+  state: AppState,
+  threadId: ThreadId | null | undefined,
+): string | undefined {
+  return selectThreadById(state, threadId)?.title;
+}
+
+export function selectProjectIdForThread(
+  state: AppState,
+  threadId: ThreadId | null | undefined,
+): Project["id"] | null {
+  return selectThreadById(state, threadId)?.projectId ?? null;
+}
+
+let cachedThreadIdSource: AppState["threads"] | null = null;
+let cachedThreadIds: ThreadId[] = [];
+
+export function selectThreadIds(state: AppState): ThreadId[] {
+  if (state.threads === cachedThreadIdSource) {
+    return cachedThreadIds;
+  }
+  cachedThreadIdSource = state.threads;
+  cachedThreadIds = state.threads.map((thread) => thread.id);
+  return cachedThreadIds;
+}
+
+let cachedProjectIdSource: AppState["projects"] | null = null;
+let cachedProjectIds: Project["id"][] = [];
+
+export function selectProjectIds(state: AppState): Project["id"][] {
+  if (state.projects === cachedProjectIdSource) {
+    return cachedProjectIds;
+  }
+  cachedProjectIdSource = state.projects;
+  cachedProjectIds = state.projects.map((project) => project.id);
+  return cachedProjectIds;
+}
+
+const cachedThreadIdsForProject = new Map<
+  Project["id"],
+  { threads: AppState["threads"]; ids: ThreadId[] }
+>();
+
+export function selectThreadIdsForProject(state: AppState, projectId: Project["id"]): ThreadId[] {
+  const cached = cachedThreadIdsForProject.get(projectId);
+  if (cached && cached.threads === state.threads) {
+    return cached.ids;
+  }
+  const ids = state.threads.filter((thread) => thread.projectId === projectId).map((thread) => thread.id);
+  cachedThreadIdsForProject.set(projectId, { threads: state.threads, ids });
+  return ids;
 }
 
 // ── Zustand store ────────────────────────────────────────────────────

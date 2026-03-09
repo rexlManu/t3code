@@ -8,7 +8,7 @@ import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings"
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { getTerminalStatusIndicator, getThreadStatusPill } from "../lib/threadStatus";
 import { type ProjectPickerThreadSearchEntry } from "../lib/projectPickerSearch";
-import { useStore } from "../store";
+import { selectProjectIdForThread, useStore } from "../store";
 import { derivePendingApprovals } from "../session-logic";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { ProjectPickerDialog } from "./ProjectPickerDialog";
@@ -31,6 +31,7 @@ export function ChatShellProjectPicker() {
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
+  const routeThreadProjectId = useStore((state) => selectProjectIdForThread(state, routeThreadId));
   const activeDraftThread = useComposerDraftStore((store) =>
     routeThreadId ? store.draftThreadsByThreadId[routeThreadId] ?? null : null,
   );
@@ -43,9 +44,8 @@ export function ChatShellProjectPicker() {
   const [focusRequestId, setFocusRequestId] = useState(0);
 
   const activeProjectId = useMemo<ProjectId | null>(() => {
-    const activeThread = routeThreadId ? threads.find((thread) => thread.id === routeThreadId) : null;
-    return activeThread?.projectId ?? activeDraftThread?.projectId ?? null;
-  }, [activeDraftThread?.projectId, routeThreadId, threads]);
+    return routeThreadProjectId ?? activeDraftThread?.projectId ?? null;
+  }, [activeDraftThread?.projectId, routeThreadProjectId]);
 
   const threadCountByProjectId = useMemo(() => {
     const counts = new Map<ProjectId, number>();
@@ -62,8 +62,11 @@ export function ChatShellProjectPicker() {
     [projects],
   );
   const threadEntries = useMemo<ProjectPickerThreadSearchEntry[]>(
-    () =>
-      threads
+    () => {
+      if (!open) {
+        return [];
+      }
+      return threads
         .toSorted((left, right) => {
           const byDate = new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
           if (byDate !== 0) return byDate;
@@ -72,10 +75,14 @@ export function ChatShellProjectPicker() {
         .map((thread) => ({
           thread,
           project: projectById.get(thread.projectId) ?? null,
-        })),
-    [projectById, threads],
+        }));
+    },
+    [open, projectById, threads],
   );
   const threadIndicatorsByThreadId = useMemo(() => {
+    if (!open) {
+      return new Map();
+    }
     const indicators = new Map<
       ThreadId,
       {
@@ -92,7 +99,7 @@ export function ChatShellProjectPicker() {
       });
     }
     return indicators;
-  }, [terminalStateByThreadId, threads]);
+  }, [open, terminalStateByThreadId, threads]);
 
   const openPicker = useCallback(() => {
     setOpen(true);

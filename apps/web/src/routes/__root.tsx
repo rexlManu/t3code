@@ -6,7 +6,7 @@ import {
   useNavigate,
   useRouterState,
 } from "@tanstack/react-router";
-import { type CSSProperties, useEffect, useRef } from "react";
+import { startTransition, type CSSProperties, useEffect, useRef } from "react";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 
 import { APP_DISPLAY_NAME } from "../branding";
@@ -174,15 +174,17 @@ function EventRouter() {
       const snapshot = await api.orchestration.getSnapshot();
       if (disposed) return;
       latestSequence = Math.max(latestSequence, snapshot.snapshotSequence);
-      syncServerReadModel(snapshot);
-      const draftThreadIds = Object.keys(
-        useComposerDraftStore.getState().draftThreadsByThreadId,
-      ) as ThreadId[];
-      const activeThreadIds = collectActiveTerminalThreadIds({
-        snapshotThreads: snapshot.threads,
-        draftThreadIds,
+      startTransition(() => {
+        syncServerReadModel(snapshot);
+        const draftThreadIds = Object.keys(
+          useComposerDraftStore.getState().draftThreadsByThreadId,
+        ) as ThreadId[];
+        const activeThreadIds = collectActiveTerminalThreadIds({
+          snapshotThreads: snapshot.threads,
+          draftThreadIds,
+        });
+        removeOrphanedTerminalStates(activeThreadIds);
       });
-      removeOrphanedTerminalStates(activeThreadIds);
       if (pending) {
         pending = false;
         await flushSnapshotSync();
