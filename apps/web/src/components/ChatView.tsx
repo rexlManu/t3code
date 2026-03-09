@@ -219,6 +219,7 @@ import {
 import { Toggle } from "./ui/toggle";
 import { SidebarTrigger } from "./ui/sidebar";
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
+import { copyTextToClipboard } from "~/lib/clipboard";
 import { readNativeApi } from "~/nativeApi";
 import {
   getAppModelOptions,
@@ -1417,6 +1418,10 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
     () => shortcutLabelForCommand(keybindings, "terminal.split"),
     [keybindings],
   );
+  const terminalToggleShortcutLabel = useMemo(
+    () => shortcutLabelForCommand(keybindings, "terminal.toggle"),
+    [keybindings],
+  );
   const newTerminalShortcutLabel = useMemo(
     () => shortcutLabelForCommand(keybindings, "terminal.new"),
     [keybindings],
@@ -1425,6 +1430,10 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
     () => shortcutLabelForCommand(keybindings, "terminal.close"),
     [keybindings],
   );
+  const terminalToggleActionLabel = useMemo(() => {
+    const action = terminalState.terminalOpen ? "Hide Terminal" : "Open Terminal";
+    return terminalToggleShortcutLabel ? `${action} (${terminalToggleShortcutLabel})` : action;
+  }, [terminalState.terminalOpen, terminalToggleShortcutLabel]);
   const diffPanelShortcutLabel = useMemo(
     () => shortcutLabelForCommand(keybindings, "diff.toggle"),
     [keybindings],
@@ -3833,6 +3842,30 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
                       {runtimeMode === "full-access" ? "Full access" : "Supervised"}
                     </span>
                   </Button>
+
+                  {/* Divider */}
+                  <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
+
+                  {/* Terminal toggle */}
+                  <Button
+                    variant={terminalState.terminalOpen ? "outline" : "ghost"}
+                    className={cn(
+                      "shrink-0 rounded whitespace-nowrap px-2 sm:px-3",
+                      terminalState.terminalOpen
+                        ? "border-border/70 text-foreground"
+                        : "text-muted-foreground/70 hover:text-foreground/80",
+                    )}
+                    size="sm"
+                    type="button"
+                    onClick={toggleTerminalVisibility}
+                    title={activeProject ? terminalToggleActionLabel : "Terminal unavailable"}
+                    aria-label={activeProject ? terminalToggleActionLabel : "Terminal unavailable"}
+                    aria-pressed={terminalState.terminalOpen}
+                    disabled={!activeProject}
+                  >
+                    <TerminalIcon />
+                    <span className="sr-only sm:not-sr-only">Terminal</span>
+                  </Button>
                 </div>
 
                 {/* Right side: send / stop button */}
@@ -4614,9 +4647,12 @@ const MessageCopyButton = memo(function MessageCopyButton({ text }: { text: stri
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(() => {
-    void navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    void copyTextToClipboard(text)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => undefined);
   }, [text]);
 
   return (

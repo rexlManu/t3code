@@ -12,6 +12,7 @@ import {
   useState,
 } from "react";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
+import { copyTextToClipboard } from "~/lib/clipboard";
 import {
   extractTerminalLinks,
   isTerminalLinkActivation,
@@ -19,6 +20,7 @@ import {
   resolvePathLinkTarget,
 } from "../terminal-links";
 import { isTerminalClearShortcut, terminalNavigationShortcutData } from "../keybindings";
+import { isTerminalSelectionCopyShortcut } from "../terminalKeyboard";
 import {
   DEFAULT_THREAD_TERMINAL_HEIGHT,
   DEFAULT_THREAD_TERMINAL_ID,
@@ -176,6 +178,28 @@ function TerminalViewport({
     };
 
     terminal.attachCustomKeyEventHandler((event) => {
+      const activeTerminal = terminalRef.current;
+      if (!activeTerminal) {
+        return true;
+      }
+
+      if (
+        isTerminalSelectionCopyShortcut(event, {
+          hasSelection: activeTerminal.hasSelection(),
+        })
+      ) {
+        const selection = activeTerminal.getSelection();
+        event.preventDefault();
+        event.stopPropagation();
+        void copyTextToClipboard(selection).catch((error) => {
+          writeSystemMessage(
+            activeTerminal,
+            error instanceof Error ? error.message : "Failed to copy terminal selection",
+          );
+        });
+        return false;
+      }
+
       const navigationData = terminalNavigationShortcutData(event);
       if (navigationData !== null) {
         event.preventDefault();
