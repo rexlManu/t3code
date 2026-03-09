@@ -105,6 +105,7 @@ export interface Thread {
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
   hasPendingApprovals: boolean;
+  hasPendingUserInput: boolean;
 }
 
 export interface ThreadSession {

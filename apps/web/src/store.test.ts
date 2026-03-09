@@ -37,6 +37,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     branch: null,
     worktreePath: null,
     hasPendingApprovals: false,
+    hasPendingUserInput: false,
     ...overrides,
   };
 }

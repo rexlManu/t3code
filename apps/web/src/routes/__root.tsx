@@ -225,7 +225,7 @@ function EventRouter() {
     });
     const unsubWelcome = onServerWelcome((payload) => {
       void (async () => {
-        await syncSnapshot();
+        await flushSnapshotSync();
         if (disposed) {
           return;
         }

@@ -66,11 +66,13 @@ import { Field, FieldLabel } from "./ui/field";
 import { Input } from "./ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "./ui/input-group";
 import {
+  getArm64IntelBuildWarningDescription,
   getDesktopUpdateActionError,
   getDesktopUpdateButtonTooltip,
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
   shouldHighlightDesktopUpdateError,
+  shouldShowArm64IntelBuildWarning,
   shouldShowDesktopUpdateButton,
   shouldToastDesktopUpdateActionResult,
 } from "./desktopUpdate.logic";
@@ -1270,10 +1272,16 @@ export default function Sidebar() {
   }, []);
 
   const showDesktopUpdateButton = isElectron && shouldShowDesktopUpdateButton(desktopUpdateState);
+  const showArm64IntelBuildWarning =
+    isElectron && shouldShowArm64IntelBuildWarning(desktopUpdateState);
 
   const desktopUpdateTooltip = desktopUpdateState
     ? getDesktopUpdateButtonTooltip(desktopUpdateState)
     : "Update available";
+  const arm64IntelBuildWarningDescription =
+    desktopUpdateState && showArm64IntelBuildWarning
+      ? getArm64IntelBuildWarningDescription(desktopUpdateState)
+      : null;
 
   const desktopUpdateButtonDisabled = isDesktopUpdateButtonDisabled(desktopUpdateState);
   const desktopUpdateButtonAction = desktopUpdateState
@@ -1417,6 +1425,10 @@ export default function Sidebar() {
                   : "hover:bg-accent/70 hover:text-foreground",
               )}
               onClick={() => {
+                if (isElectron) {
+                  void handlePickFolder();
+                  return;
+                }
                 setAddProjectDialogOpen(true);
               }}
             >
@@ -1465,34 +1477,41 @@ export default function Sidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      {showDesktopUpdateButton ? (
+      {showDesktopUpdateButton || showArm64IntelBuildWarning ? (
         <>
           <SidebarSeparator />
           <SidebarFooter className="gap-2 p-3">
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    aria-label={desktopUpdateTooltip}
-                    aria-disabled={desktopUpdateButtonDisabled || undefined}
-                    disabled={desktopUpdateButtonDisabled}
-                    className={`flex w-full items-center justify-center gap-2 rounded-md border border-border px-2 py-1.5 text-xs transition-colors ${desktopUpdateButtonInteractivityClasses} ${desktopUpdateButtonClasses}`}
-                    onClick={handleDesktopUpdateButtonClick}
-                  >
-                    <RocketIcon className="size-3.5" />
-                    <span className="truncate">
-                      {desktopUpdateButtonAction === "install"
-                        ? "Install update"
-                        : desktopUpdateState?.status === "downloading"
-                          ? "Downloading update..."
-                          : "Update available"}
-                    </span>
-                  </button>
-                }
-              />
-              <TooltipPopup side="top">{desktopUpdateTooltip}</TooltipPopup>
-            </Tooltip>
+            {showDesktopUpdateButton ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-label={desktopUpdateTooltip}
+                      aria-disabled={desktopUpdateButtonDisabled || undefined}
+                      disabled={desktopUpdateButtonDisabled}
+                      className={`flex w-full items-center justify-center gap-2 rounded-md border border-border px-2 py-1.5 text-xs transition-colors ${desktopUpdateButtonInteractivityClasses} ${desktopUpdateButtonClasses}`}
+                      onClick={handleDesktopUpdateButtonClick}
+                    >
+                      <RocketIcon className="size-3.5" />
+                      <span className="truncate">
+                        {desktopUpdateButtonAction === "install"
+                          ? "Install update"
+                          : desktopUpdateState?.status === "downloading"
+                            ? "Downloading update..."
+                            : "Update available"}
+                      </span>
+                    </button>
+                  }
+                />
+                <TooltipPopup side="top">{desktopUpdateTooltip}</TooltipPopup>
+              </Tooltip>
+            ) : null}
+            {arm64IntelBuildWarningDescription ? (
+              <p className="text-xs leading-5 text-amber-600 dark:text-amber-300/80">
+                {arm64IntelBuildWarningDescription}
+              </p>
+            ) : null}
           </SidebarFooter>
         </>
       ) : null}

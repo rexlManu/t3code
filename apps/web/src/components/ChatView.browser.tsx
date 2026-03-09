@@ -1139,7 +1139,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     let createdModel = "gpt-5";
     let createdRuntimeMode: "full-access" | "approval-required" = "full-access";
     let createdInteractionMode: "default" | "plan" = "default";
-    let hydrationTimer: ReturnType<typeof setTimeout> | null = null;
+    let hydrationTimer: number | null = null;
 
     useComposerDraftStore.setState({
       draftThreadsByThreadId: {
@@ -1237,7 +1237,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
                   checkpoints: [],
                   session: {
                     threadId: THREAD_ID,
-                    status: "connecting",
+                    status: "starting",
                     providerName: "codex",
                     runtimeMode: createdRuntimeMode,
                     activeTurnId: turnId,
@@ -1299,7 +1299,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
     } finally {
       if (hydrationTimer !== null) {
-        clearTimeout(hydrationTimer);
+        window.clearTimeout(hydrationTimer);
       }
       await mounted.cleanup();
     }
