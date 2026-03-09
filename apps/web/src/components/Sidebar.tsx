@@ -1235,7 +1235,7 @@ export default function Sidebar() {
             <button
               type="button"
               className={cn(
-                "inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/75 transition-colors",
+                "inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] font-bold uppercase text-muted-foreground/75 transition-colors",
                 addProjectDialogOpen
                   ? "bg-primary/10 text-primary"
                   : "hover:bg-accent/70 hover:text-foreground",

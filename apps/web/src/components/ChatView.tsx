@@ -5518,7 +5518,7 @@ const MessagesTimeline = memo(function MessagesTimeline({
                   </div>
                 )}
                 <div className="mt-2 flex items-center gap-2">
-                  <p className="font-mono text-[11px] text-muted-foreground">
+                  <p className="text-[11px] text-muted-foreground">
                     {formatTimestamp(row.message.createdAt)}
                   </p>
                   <div className="flex items-center gap-1.5 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
@@ -5594,7 +5594,7 @@ const MessagesTimeline = memo(function MessagesTimeline({
                       </div>
                     );
                   })()}
-                  <p className="mt-2 font-mono text-[11px] text-muted-foreground">
+                  <p className="mt-2 text-[11px] text-muted-foreground">
                     {formatMessageMeta(
                       row.message.createdAt,
                       row.message.streaming
