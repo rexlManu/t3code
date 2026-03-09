@@ -995,20 +995,24 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
   );
   const deferredTimelineThread = useDeferredValue(activeThread);
   const deferredTimelineProject = useDeferredValue(activeProject);
-  const deferredLatestTurn = deferredTimelineThread?.latestTurn ?? null;
-  const deferredThreadActivities = deferredTimelineThread?.activities ?? EMPTY_ACTIVITIES;
+  const timelineThread =
+    deferredTimelineThread?.id === activeThread?.id ? deferredTimelineThread : activeThread;
+  const timelineProject =
+    deferredTimelineProject?.id === activeProject?.id ? deferredTimelineProject : activeProject;
+  const deferredLatestTurn = timelineThread?.latestTurn ?? null;
+  const deferredThreadActivities = timelineThread?.activities ?? EMPTY_ACTIVITIES;
   const liveThreadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = useMemo(
     () =>
       deriveWorkLogEntries(
         deferredThreadActivities,
         deferredLatestTurn?.turnId ?? undefined,
-        deferredTimelineThread?.session?.provider ?? null,
+        timelineThread?.session?.provider ?? null,
       ),
     [
       deferredLatestTurn?.turnId,
       deferredThreadActivities,
-      deferredTimelineThread?.session?.provider,
+      timelineThread?.session?.provider,
     ],
   );
   const latestTurnHasToolActivity = useMemo(
@@ -1061,10 +1065,10 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
       return null;
     }
     return findLatestProposedPlan(
-      deferredTimelineThread?.proposedPlans ?? [],
+      timelineThread?.proposedPlans ?? [],
       deferredLatestTurn?.turnId ?? null,
     );
-  }, [deferredLatestTurn?.turnId, deferredTimelineThread?.proposedPlans, latestTurnSettled]);
+  }, [deferredLatestTurn?.turnId, latestTurnSettled, timelineThread?.proposedPlans]);
   const activePlan = useMemo(
     () => deriveActivePlanState(deferredThreadActivities, deferredLatestTurn?.turnId ?? undefined),
     [deferredLatestTurn?.turnId, deferredThreadActivities],
@@ -1160,7 +1164,7 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
       delete attachmentPreviewHandoffTimeoutByMessageIdRef.current[messageId];
     }, ATTACHMENT_PREVIEW_HANDOFF_TTL_MS);
   }, []);
-  const serverMessages = deferredTimelineThread?.messages;
+  const serverMessages = timelineThread?.messages;
   const timelineMessages = useMemo(() => {
     const messages = serverMessages ?? [];
     const serverMessagesWithPreviewHandoff =
@@ -1216,11 +1220,11 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
   }, [serverMessages, attachmentPreviewHandoffByMessageId, optimisticUserMessages]);
   const timelineEntries = useMemo(
     () =>
-      deriveTimelineEntries(timelineMessages, deferredTimelineThread?.proposedPlans ?? [], workLogEntries),
-    [deferredTimelineThread?.proposedPlans, timelineMessages, workLogEntries],
+      deriveTimelineEntries(timelineMessages, timelineThread?.proposedPlans ?? [], workLogEntries),
+    [timelineMessages, timelineThread?.proposedPlans, workLogEntries],
   );
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
-    useTurnDiffSummaries(deferredTimelineThread);
+    useTurnDiffSummaries(timelineThread);
   const turnDiffSummaryByAssistantMessageId = useMemo(() => {
     const byMessageId = new Map<MessageId, TurnDiffSummary>();
     for (const summary of turnDiffSummaries) {
@@ -3599,7 +3603,7 @@ export default function ChatView({ threadId, splitPaneCount = 1 }: ChatViewProps
             isRevertingCheckpoint={isRevertingCheckpoint}
             onImageExpand={onExpandTimelineImage}
             markdownCwd={gitCwd ?? undefined}
-            workspaceRoot={deferredTimelineProject?.cwd ?? undefined}
+            workspaceRoot={timelineProject?.cwd ?? undefined}
           />
         </div>
       </div>
