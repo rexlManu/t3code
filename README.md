@@ -1,5 +1,16 @@
 # T3 Code
 
+> [!IMPORTANT]
+> **Repository Archived**
+>
+> I decided to archive this repository. The project started with several architectural decisions that later caused performance issues. While those issues have since been resolved, I realized that the current direction of the UI changes puts too much emphasis on tool calls, which are not actually the core problem this project should be solving.
+>
+> Instead of continuing to iterate on this implementation, I decided to start fresh from the upstream project and refocus development on features and functionality rather than UI experimentation.
+>
+> This repository remains available for reference but is no longer maintained.
+
+---
+
 T3 Code is a minimal web GUI for coding agents. Currently Codex-first, with Claude Code support coming soon.
 
 ### Caution
@@ -13,16 +24,3 @@ This version of T3 Code is heavily modified.
 
 ```bash
 npx t3
-```
-
-You can also just install the desktop app. It's cooler.
-
-Install the [desktop app from the Releases page](https://github.com/pingdotgg/t3code/releases)
-
-## Some notes
-
-We are very very early in this project. Expect bugs.
-
-We are not accepting contributions yet.
-
-Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).
