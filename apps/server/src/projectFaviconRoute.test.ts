@@ -153,15 +153,53 @@ describe("tryHandleProjectFaviconRequest", () => {
     });
   });
 
-  it("serves a fallback favicon when no icon exists", async () => {
-    const projectDir = makeTempDir("t3code-favicon-route-fallback-");
+  it("resolves a favicon from a web app inside apps/", async () => {
+    const projectDir = makeTempDir("t3code-favicon-route-apps-root-");
+    const appDir = path.join(projectDir, "apps", "web");
+    const iconPath = path.join(appDir, "public", "favicon.ico");
+    fs.mkdirSync(path.dirname(iconPath), { recursive: true });
+    fs.writeFileSync(iconPath, "web-app-favicon", "utf8");
+
+    await withRouteServer(async (baseUrl) => {
+      const pathname = `/api/project-favicon?cwd=${encodeURIComponent(projectDir)}`;
+      const response = await request(baseUrl, pathname);
+      expect(response.statusCode).toBe(200);
+      expect(response.contentType).toContain("image/x-icon");
+      expect(response.body).toBe("web-app-favicon");
+    });
+  });
+
+  it("searches apps/ recursively for nested web apps", async () => {
+    const projectDir = makeTempDir("t3code-favicon-route-apps-recursive-");
+    const appDir = path.join(projectDir, "apps", "client", "site");
+    const iconPath = path.join(appDir, "public", "brand", "logo.svg");
+    fs.mkdirSync(path.dirname(iconPath), { recursive: true });
+    fs.mkdirSync(path.join(appDir, "src"), { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, "index.html"),
+      '<link rel="icon" href="/brand/logo.svg">',
+      "utf8",
+    );
+    fs.writeFileSync(iconPath, "<svg>nested-brand</svg>", "utf8");
 
     await withRouteServer(async (baseUrl) => {
       const pathname = `/api/project-favicon?cwd=${encodeURIComponent(projectDir)}`;
       const response = await request(baseUrl, pathname);
       expect(response.statusCode).toBe(200);
       expect(response.contentType).toContain("image/svg+xml");
-      expect(response.body).toContain('data-fallback="project-favicon"');
+      expect(response.body).toBe("<svg>nested-brand</svg>");
+    });
+  });
+
+  it("returns 204 when no favicon exists", async () => {
+    const projectDir = makeTempDir("t3code-favicon-route-fallback-");
+
+    await withRouteServer(async (baseUrl) => {
+      const pathname = `/api/project-favicon?cwd=${encodeURIComponent(projectDir)}`;
+      const response = await request(baseUrl, pathname);
+      expect(response.statusCode).toBe(204);
+      expect(response.contentType).toBeNull();
+      expect(response.body).toBe("");
     });
   });
 });

@@ -82,6 +82,7 @@ import {
   SidebarContextMenu,
   type SidebarContextMenuEntry,
 } from "./SidebarContextMenu";
+import { ProjectFavicon } from "./ProjectFavicon";
 import {
   SidebarContent,
   SidebarFooter,
@@ -462,8 +463,11 @@ const SidebarProjectSection = memo(function SidebarProjectSection(props: {
               });
             }}
           >
-            <ProjectFolderIcon
-              className={cn(
+            <ProjectFavicon
+              cwd={project.cwd}
+              className="size-4"
+              fallbackIcon={ProjectFolderIcon}
+              fallbackClassName={cn(
                 "size-4 shrink-0 transition-colors",
                 isProjectActive ? "text-primary" : "text-muted-foreground/70",
               )}

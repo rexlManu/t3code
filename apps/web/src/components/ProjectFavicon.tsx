@@ -1,5 +1,5 @@
-import { FolderIcon } from "lucide-react";
-import { useState } from "react";
+import { FolderIcon, type LucideIcon } from "lucide-react";
+import { useEffect, useState } from "react";
 import { cn } from "../lib/utils";
 
 function getServerHttpOrigin(): string {
@@ -25,13 +25,19 @@ export function ProjectFavicon(props: {
   cwd: string;
   className?: string;
   fallbackClassName?: string;
+  fallbackIcon?: LucideIcon;
 }) {
   const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
   const src = `${serverHttpOrigin}/api/project-favicon?cwd=${encodeURIComponent(props.cwd)}`;
+  const FallbackIcon = props.fallbackIcon ?? FolderIcon;
+
+  useEffect(() => {
+    setStatus("loading");
+  }, [src]);
 
   if (status === "error") {
     return (
-      <FolderIcon
+      <FallbackIcon
         className={cn("size-3.5 shrink-0 text-muted-foreground/50", props.fallbackClassName)}
       />
     );
@@ -46,7 +52,10 @@ export function ProjectFavicon(props: {
         status === "loading" && "hidden",
         props.className,
       )}
-      onLoad={() => setStatus("loaded")}
+      onLoad={(event) => {
+        const image = event.currentTarget;
+        setStatus(image.naturalWidth > 0 || image.naturalHeight > 0 ? "loaded" : "error");
+      }}
       onError={() => setStatus("error")}
     />
   );
